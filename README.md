@@ -196,8 +196,14 @@ COMMENT ON FUNCTION get_expression_values_for_genename_dataset(TEXT, INTEGER) IS
 $qq$
 Summary: Returns a table of CCLE expression values and their corresponding gene, cell line name and cancer type values for a given gene name
 and metadata ID.
-Example: SELECT get_expression_values_for_genename_dataset('CD38', 1);
+Example: SELECT * FROM get_expression_values_for_genename_dataset('CD38', 1);
 $qq$
 ```
 
-I will come bac to this section and add explanatory notes for this relatively complex function. This function can now be called in R to return a data frame.
+**Extracting the data into a TSV file using the PL/pgSQL function**
+
+```
+psql -h <host name> -d Cancer_Cell_Line_Encyclopedia  -U <user name> -A -F $'\t' -X -t -c "SELECT * FROM get_expression_values_for_genename_dataset('CLEC2D', 1)" -o clec2d_ccle_expression.tsv
+```
+
+I will come back to this section and add explanatory notes for this relatively complex function. This function can now be called in R to return a data frame.
