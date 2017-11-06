@@ -21,7 +21,7 @@ $ wget https://www.ebi.ac.uk/gxa/experiments-content/E-MTAB-2770/resources/Exper
 First, log in to *psql*. Assumes the port is 5432 and the password is set in the *.pgpass*.
 
 ```
-$ psql -d Cancer_Cell_Line_Encyclopedia -h <host name> -U 
+$ psql -d Cancer_Cell_Line_Encyclopedia -h <host name> -U <user name>
 ```
 
 The downloaded file is tab-delimited with a lot of columns (956 to be precise). I do the actual  parsing in PostgreSQL itself so the first step is to load the entire file intowhat I refer to as atransfer table. The table definition is:
