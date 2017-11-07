@@ -281,6 +281,8 @@ This PL/pgSQL function merits some explanation. Like the *SELECT* statements use
 
 Now, finally, I can write some R code to call the PL/pgSQL functions defined earlier as reuired. To do this, I created a an R project in R Studio. This is going to be an R Shiny application but that does not matter for now. I added a file called *global.R* to the project. This will be visible to the R Shiny application files, *ui.R* and *server.R*, that I will create later.
 
+Links: https://shiny.rstudio.com/articles/sql-injections.html
+
 ```r
 library(pool)
 library(DBI)
