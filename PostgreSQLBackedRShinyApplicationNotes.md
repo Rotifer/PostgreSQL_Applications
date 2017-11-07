@@ -4,22 +4,21 @@
 ## Summary
 I will develop a PostgreSQL--backed R Shiny application for visualization and analysis of [RNA gene expression](https://en.wikipedia.org/wiki/Gene_expression) data from the [Cancer Cell Line Encyclopedia](https://portals.broadinstitute.org/ccle)
 
-## Steps in Application Development
+## Steps in application development
 1. Download the data.
-2. Upload it into a PostgreSQL database that I have named *Cancer_Cell_Line_Encyclopedia*.
+2. Upload the data into a PostgreSQL database that I have named *Cancer_Cell_Line_Encyclopedia*.
 3. Decompose the uploaded data into tables.
-4. Write Pl/pgSQL functionsto return the data as tables.
+4. Write Pl/pgSQL functions to return the data as tables.
 5. Write R code to connect to the database, call the PL/pgSQL functions amd return the data as data frames.
 5. Write the R code for the Shiny user interface.
 6. Write some tests.
 
 I realize that writing tests at the end is not the way it should be done but these notes are for learning and future reference.
 
-## Download the Data
+## Download and explore the data
 The source data was downloaded from the European Bioinformatics Institute Expression Atlas resource. The actual download files are [here](https://www.ebi.ac.uk/gxa/experiments/E-MTAB-2770/Downloads). 
 Once we have downloaded the data file, I will give a brief description of its structure.
 
-**Downloading**
 
 ```sh
 $ wget https://www.ebi.ac.uk/gxa/experiments-content/E-MTAB-2770/resources/ExperimentDownloadSupplier.RnaSeqBaseline/tpms.tsv
@@ -37,22 +36,25 @@ This sequence of commands does the following:
 * Replace tabs with new lines (*tr '\t' '\n'*).
 * Number the output lines (*cat -n*).
 
-**Tip**: These simple Unix text utilities can be combined using pipes to perform powerful data exploration prior to loading files into spreadsheets, R or databases. If you do not know them already, then I would recommend learning them.
+**Tip: These simple Unix text utilities can be combined using pipes to perform powerful data exploration prior to loading files into spreadsheets, R or databases. If you do not know them already, then I would recommend learning them.**
 
 This gives me some useful information:
 * There are 936 columns in the file that are separated by tabs.
 * The first two columns are gene identifiers.
 * The remaining 934 columns contain the cell line identifiers and the cancer names they relate to.
 
-### Moving the file contents to a PostgreSQL DB
+All lines after line 5  are data lines.
+
+## Upload the data file into a PostgreSQL database
+I created a database called *Cancer_Cell_Line_Encyclopedia*. All the objects, tables, functions, etc, are stored in the default *public* schema. For more complex applications, I use multiple schemas but since this is a relative simple application, one will suffice.
 
 First, log in to *psql*. Assumes the port is 5432 and the password is set in the *.pgpass*.
 
-```
-$ psql -d Cancer_Cell_Line_Encyclopedia -h <host name> -U <user name>
+```sh
+psql -d Cancer_Cell_Line_Encyclopedia -h <host name> -U <user name>
 ```
 
-The downloaded file is tab-delimited with a lot of columns (956 to be precise). I do the actual  parsing in PostgreSQL itself so the first step is to load the entire file intowhat I refer to as atransfer table. The table definition is:
+As described previously, the downloaded file is tab-delimited with a lot of columns (956 to be precise). I do the actual  parsing in PostgreSQL itself so the first step is to load the entire file into what I refer to as a transfer table. The target table definition is:
 
 ```sql
 CREATE UNLOGGED TABLE transit_tmp(
@@ -62,23 +64,23 @@ COMMENT ON TABLE transit_tmp
     IS 'Used to store unprocessed data before it is munged and moved to permanent tables.';
 ```
 
-This table has only a single column and I have deliberately omitted the primary key. Since the data here is transitory, I've defined it as an unlooged table which makes it slightly more performant. I can do this safely because I am not worried about losing its data in the event of a database crash.
+This table has only a single column and I have deliberately omitted the primary key. Since the data here is transitory, I've defined it as an *unlogged* table which makes it slightly more performant at the expense of persistence in the event of a system crash, see [this link](https://www.compose.com/articles/faster-performance-with-unlogged-tables-in-postgresql/) for more on this table type.
 
 I use a single *plsql \COPY* command to load the data into the *transit_tmp* table:
 
-```
+```sql
 Cancer_Cell_Line_Encyclopedia=> \COPY transit_tmp FROM '<path to tpms.tsv file>' DELIMITER E'\b';
 ```
 
-The delimiter '\b' was chosen because it does **not** exist in the file and, therefore, each full line is pushed into a single column called *data_row* in the target table *transit_tmp*. I tried using a Python's *psycopg2* to do this loading but it was very slow (>10 minutes).
+The delimiter **'\b'** was chosen because it does **not** exist in the file and, therefore, each full line is pushed into a single column called *data_row* in the target table *transit_tmp*. I tried using a Python's *psycopg2* to do this loading but it was very slow (>10 minutes). Assuming this *psqlp* command executes without error, we now have the data in Postgres and will proceed to do all further data processing in the database.
 
-### Parsing the loaded data
+## Decompose the uploaded data into tables
 
-Now for the fun part. I want to:
+The steps here use plain SQL to decompose the file data and use PostgreSQL array manipulation heavily.
 
-1. Store the expression values, from column three onwards, as PostgreSQL arrays.
-2. Record the metadata stored in the first four lines of the source file and prefixed with '#'.
-3. Turn the fifth line that contains the column headings for the expression values into rows where each row containsthe cell line name, the cancer name and the index number of the column that will be used later to retrieve the expression values from the array. Remember that PostgreSQL arrays are 1-based! The first two column names of the input line are discarded from the table generated here because they refer to the genes. 
+1. Store the expression values, from column three onwards, as **PostgreSQL arrays**.
+2. Record the **metadata** stored in the first four lines of the source file and prefixed with '#'.
+3. Turn the fifth line that contains the column headings for the expression values into rows where each row contains the cell line name, the cancer name and the index number of the column that will be used later to retrieve the expression values from the array. Remember that PostgreSQL arrays are 1-based! The first two column names of the input line are discarded from the table generated here because they refer to the genes. 
 
 Here are the table definitions (see the stored comments for table descriptions):
 
@@ -109,7 +111,9 @@ COMMENT ON TABLE gene_expression_values IS 'Stores gene identifiers with their c
 
 Now that the tables are created, I will populate them using plain SQL. This SQL depends heavily on array manipulation. Remember that the input data is tab-separated so you will see a lot of string splitting using the the tab character (defined as E'\t' in the SQL statements).
 
-**Storing the metadata**
+### Storing the metadata
+
+The following SQL turns the metadata rows into an array (*ARRAY_AGG*) and then concatenates the array elements into one big string (*ARRAY_TO_STRING*) that it then stores in the table.
 
 ```sql
 INSERT INTO ccle_metadata(metadata)
@@ -121,7 +125,10 @@ WHERE
   data_row ~ '^#';
 ```
 
-**Storing the cell line column names as rows**
+### Storing the cell line column names as rows
+
+The SQL step here processes the line with the column names (line 5) and turns all its columns except the first two into rows. If you are not familiar with PostgreSQL arrays and the functions that generate and manipulate them, then the code will be challenging and you may need to refer to tutorials and references that describe functions such as *ARRAY_AGG*, *UNNEST*, *STRING_TO_ARRAY* and *ARRAY_TO_STRING*. It is easier to understand this quite complex nested *SELECT* SQL statement by breaking it down into its constituent parts starting with the inner-most *SELECT* named *sqi*. This *SELECT* extracts the fifth row (*OFFSET 4 LIMIT 1*) and uses the tab delimiter to brerak it into an array. The next *SELECT* named *sqo* turns the array into rows (*UNNEST*). It discards the first two rows (*OFFSET 2*), and then breaks each row into two parts: the cell line name (*cell_line_name*) and the cancer name (*cancer_name*)  using comma, **,**, as the delimiter. A complication here is that the comma character itself occurs once in some of the cancer names. The array slice *[2:3]* allows for this. The outer-most *SELECT* statement retrieves the generated values for the cell line and cancer names. It also adds two more columns: The first uses a window function *ROW_NUMBER* to generate index numbers that will be used to match the cell line and cancer names to the index for the array that will store the expression values in another table. The second value is *ccle_metadata_id*. Hard-coding it into the query like this is not a good idea but will do for this example. In fact, this whole SQL statement should be re-factored into one or more PL/pgSQL functions. 
+
 
 ```sql
 INSERT INTO cell_line_cancer_type_idx_map(cell_line_name, cancer_name, expr_val_idx, ccle_metadata_id)
@@ -143,8 +150,9 @@ FROM
   OFFSET 2) sqo;
 ```
 
-**Storing the gene expression values**
+### Storing the gene expression values
 
+The SQL statement to do this is considerable simpler than the previous one. 
 ```sql
 INSERT INTO gene_expression_values(ensembl_gene_id, gene_name, expr_vals, ccle_metadata_id)
 SELECT
@@ -161,7 +169,7 @@ FROM
     data_row ~ '^ENSG') sq;
 ```
 
-**Extraccting the data in aformat suitable for R**
+**Extraccting the data in a format suitable for R**
 
 Now that the data is structured in tables, I need a way to extract data into a form that is usable in R. This requires turning the PostgreSQL arrays into rows and matching these rows with the cancer and cell line types. I am interested in returning the expression data as a table for a given gene name. The example given here contains data for only one data set, TPMS, but I want to allow for storage of other data types so I need to filter so as to only return the expression data for a one data set regardless of how many I have stored in the database. The value for *ccle_metadata_id* from the *ccle_metadata* table has been posted to the two other data tables as a foreign key for this very purpose. To return the table, I have defined a PL/pgSQL function that takes two parameters: the gene name and the *ccle_metadata_id*. Before I define this function, I need an additional helper function whose purpose is to determine if the expression values are numeric. Some of the data points in the input file are *null*. When I split on tabs to create the arrays, these are represented as empty strings. And no, empty strings are not NULL despite what Oracle thinks. I want to ensure that these empty strings are returned as true NULLs in the output table. The following Boolean returning function does the trick:
 
