@@ -9,7 +9,7 @@ I will develop a PostgreSQL--backed R Shiny application for visualization and an
 2. Upload the data into a PostgreSQL database that I have named *Cancer_Cell_Line_Encyclopedia*.
 3. Decompose the uploaded data into tables.
 4. Write Pl/pgSQL functions to return the data as tables.
-5. Write R code to connect to the database, call the PL/pgSQL functions amd return the data as data frames.
+5. Write R code to call PL/pgSQL functions to return data frames.
 5. Write the R code for the Shiny user interface.
 6. Write some tests.
 
@@ -106,7 +106,7 @@ CREATE TABLE gene_expression_values(
   ccle_metadata_id INTEGER REFERENCES ccle_metadata(ccle_metadata_id)
 );
 COMMENT ON TABLE gene_expression_values IS 'Stores gene identifiers with their corresponding expression values that are stored as an array.';
-
+CREATE UNIQUE INDEX gev_ensembl_gene_id_idx ON gene_expression_values(ensembl_gene_id);
 ```
 
 Now that the tables are created, I will populate them using plain SQL. This SQL depends heavily on array manipulation. Remember that the input data is tab-separated so you will see a lot of string splitting using the the tab character (defined as E'\t' in the SQL statements).
@@ -152,7 +152,8 @@ FROM
 
 ### Storing the gene expression values
 
-The SQL statement to do this is considerable simpler than the previous one. 
+The SQL statement to do this is considerable simpler than the previous one. The inner *SELECT* statement returns all data lines by using a regulary expression (*data_row ~ '^ENSG'*). The data rows are then turned into arrays by splitting on tabs and the required array elements are extracted and named. All the expression values are stored as an array (*[3:936]*). Once again, we have the hard-coded value for *1::INTEGER* for the *ccle_metadata_id* column.
+
 ```sql
 INSERT INTO gene_expression_values(ensembl_gene_id, gene_name, expr_vals, ccle_metadata_id)
 SELECT
@@ -169,9 +170,9 @@ FROM
     data_row ~ '^ENSG') sq;
 ```
 
-**Extraccting the data in a format suitable for R**
+## Write Pl/pgSQL functions to return the data as tables
 
-Now that the data is structured in tables, I need a way to extract data into a form that is usable in R. This requires turning the PostgreSQL arrays into rows and matching these rows with the cancer and cell line types. I am interested in returning the expression data as a table for a given gene name. The example given here contains data for only one data set, TPMS, but I want to allow for storage of other data types so I need to filter so as to only return the expression data for a one data set regardless of how many I have stored in the database. The value for *ccle_metadata_id* from the *ccle_metadata* table has been posted to the two other data tables as a foreign key for this very purpose. To return the table, I have defined a PL/pgSQL function that takes two parameters: the gene name and the *ccle_metadata_id*. Before I define this function, I need an additional helper function whose purpose is to determine if the expression values are numeric. Some of the data points in the input file are *null*. When I split on tabs to create the arrays, these are represented as empty strings. And no, empty strings are not NULL despite what Oracle thinks. I want to ensure that these empty strings are returned as true NULLs in the output table. The following Boolean returning function does the trick:
+Now that the data is structured in tables, we need a way to extract data into a form that is usable in R. This requires turning the PostgreSQL expression value arrays into rows and matching these rows with the cancer and cell line types. We are interested in returning the expression data as a table for a given gene name. The example given here contains data for only one data set, TPMS, but we want to allow for storage of other data types so we need to filter so as to only return the expression data for a one data set regardless of how many we have stored in the database. The value for *ccle_metadata_id* from the *ccle_metadata* table has been posted to the two other data tables as a foreign key for this very purpose (the ugly, hard-coded *1::INTEGER* value in the *INSERT* statements above). To return the table, I have defined a PL/pgSQL function that takes two parameters: the gene name and the *ccle_metadata_id*. Before I define this function, I need an additional helper functions to determine if the expression values are numeric and a function to return the Ensembl IDs for a given gene name. Some of the data points in the input file are *null*. When I split on tabs to create the arrays, these are represented as empty strings. And no, empty strings are not NULL despite what Oracle thinks. I want to ensure that these empty strings are returned as true NULLs in the output table. The following Boolean returning function does the numeric test:
 
 ```plpgsql
 CREATE OR REPLACE FUNCTION isnumeric(text) RETURNS BOOLEAN AS $$
@@ -188,10 +189,42 @@ LANGUAGE plpgsql IMMUTABLE;
 COMMENT ON FUNCTION isnumeric(text) IS $qq$ Purpose: Check if the given argument is a number. Used to check substrings created by splitting strings into arrays. Copied verbatim from this source: http://stackoverflow.com/questions/16195986/isnumeric-with-postgresql. $qq$;
 ```
 
-Now I can define the main function that will return a **table** of expression values for all cell lines and cancer types for a given gene name and metadata ID. Here it is:
+The second helper function is needed because there are multiple entries for certain gene name, that is, the same gene name can map to one or more Ensembl gene IDs. I am not going to explain why this is so but it is a complication that needs to be accountd for. Since gene names are much more user-friendly than the Ensembl gene IDs, we need a function to return all Ensembl gene iDs for a given gene name. Here is the function:
 
 ```plpgsql
-CREATE OR REPLACE FUNCTION get_expression_values_for_genename_dataset(p_gene_name TEXT, p_ccle_metadata_id INTEGER)
+CREATE OR REPLACE FUNCTION get_ensembl_gene_ids_for_gene_name(p_gene_name TEXT)
+RETURNS TABLE (ensembl_gene_id TEXT)
+AS
+$$
+DECLARE
+  l_gene_name TEXT := TRIM(UPPER(p_gene_name));
+BEGIN
+  RETURN QUERY
+  SELECT
+    gev.ensembl_gene_id
+  FROM
+    gene_expression_values gev
+  WHERE
+    gene_name = l_gene_name;
+END;
+$$
+LANGUAGE plpgsql SECURITY DEFINER STABLE;
+ 
+COMMENT ON FUNCTION get_ensembl_gene_ids_for_gene_name(TEXT) IS
+$qq$
+Purpose: Return all Ensembl gene IDs for a given gene name from table "gene_expression_values". 
+Leading/trailing white space and case are ignored.
+Note: Gene names are not unique in table "gene_expression_values" but Ensembl gene IDs are.
+This function will return all the Ensembl IDs for a given gene name.
+Examples: SELECT ensembl_gene_id FROM get_ensembl_gene_ids_for_gene_name('clec2d');
+SELECT ensembl_gene_id FROM get_ensembl_gene_ids_for_gene_name('mal2') -- Returns two Ensembl gene IDs
+$qq$;
+```
+
+Now I can define the main function that will return a **table** of expression values for all cell lines and cancer types for a given Ensembl gene ID and metadata ID. Here it is:
+
+```plpgsql
+CREATE OR REPLACE FUNCTION get_expr_vals_for_ensembl_gene_id_dataset(p_ensembl_gene_id TEXT, p_ccle_metadata_id INTEGER)
 RETURNS TABLE(ensembl_gene_id TEXT, gene_name TEXT, expr_val REAL, cell_line_name TEXT, cancer_name TEXT)
 AS
 $$
@@ -220,7 +253,7 @@ BEGIN
       FROM
         gene_expression_values gev
       WHERE
-        gev.gene_name = p_gene_name) sqi) sqo
+        gev.ensembl_gene_id = p_ensembl_gene_id) sqi) sqo
     JOIN
       cell_line_cancer_type_idx_map clctim ON sqo.expr_val_idx = clctim.expr_val_idx
   WHERE
@@ -228,18 +261,60 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql SECURITY DEFINER STABLE;
-COMMENT ON FUNCTION get_expression_values_for_genename_dataset(TEXT, INTEGER) IS
+COMMENT ON FUNCTION get_expr_vals_for_ensembl_gene_id_dataset(TEXT, INTEGER) IS
 $qq$
-Summary: Returns a table of CCLE expression values and their corresponding gene, cell line name and cancer type values for a given gene name
+Summary: Returns a table of CCLE expression values and their corresponding gene, cell line name and cancer type values for a given ensembl gene ID
 and metadata ID.
-Example: SELECT * FROM get_expression_values_for_genename_dataset('CD38', 1);
+Example: SELECT * FROM get_expr_vals_for_ensembl_gene_id_dataset('ENSG00000004468', 1);
 $qq$
 ```
 
-**Extracting the data into a TSV file using the PL/pgSQL function**
+I can test this function from the command line as follows:
 
-```
-psql -h <host name> -d Cancer_Cell_Line_Encyclopedia  -U <user name> -A -F $'\t' -X -t -c "SELECT * FROM get_expression_values_for_genename_dataset('CLEC2D', 1)" -o clec2d_ccle_expression.tsv
+```sh
+psql -h <your host name> -d Cancer_Cell_Line_Encyclopedia  -U <your user name> -A -F $'\t' -X -t -c "SELECT * FROM get_expr_vals_for_ensembl_gene_id_dataset('ENSG00000004468', 1)" -o ENSG00000004468_ccle_expression.tsv
 ```
 
-I will come back to this section and add explanatory notes for this relatively complex function. This function can now be called in R to return a data frame.
+This PL/pgSQL function merits some explanation. Like the *SELECT* statements used earlier to populate tables, it uses nested queries, array manipulation and a window function. The inner-most *SELECT* named *sqi* turns the expression arrays into rows. The next statement named *sqo* uses the window function *ROW_NUMER* to add row numbers (*ROW_NUMBER() OVER() expr_val_idx*). These generated row numbers are then used to join the expression values to their corresponding cancer cell line name and cancer name values (*JOIN cell_line_cancer_type_idx_map clctim ON sqo.expr_val_idx = clctim.expr_val_idx*). The *isnumeric* helper function defined earlier is used to cast numeric strings to REAL and empty strings to NULLs.
+
+## Write R code to call PL/pgSQL functions to return data frames
+
+Now, finally, I can write some R code to call the PL/pgSQL functions defined earlier as reuired. To do this, I created a an R project in R Studio. This is going to be an R Shiny application but that does not matter for now. I added a file called *global.R* to the project. This will be visible to the R Shiny application files, *ui.R* and *server.R*, that I will create later.
+
+```r
+library(pool)
+library(DBI)
+
+
+pool <- pool::dbPool(
+  drv = RPostgreSQL::PostgreSQL(),
+  dbname = "Cancer_Cell_Line_Encyclopedia",
+  host = "192.168.49.15",
+  user = "shiny_reader",
+  port = 5432,
+  password = "readonly"
+)
+
+pg_conn <- poolCheckout(pool)
+
+get_ensembl_gene_ids_for_gene_name <- function(gene_name) {
+  sql_tmpl <- 'SELECT ensembl_gene_id FROM get_ensembl_gene_ids_for_gene_name(?gene_name)'
+  sql <- sqlInterpolate(DBI::ANSI(), sql_tmpl, gene_name = gene_name)
+  ensembl_gene_ids <- dbGetQuery(pg_conn, sql)
+}
+
+get_expr_vals_for_gene_name <- function(gene_name, ccle_metadata_id) {
+  ensembl_gene_ids <- get_ensembl_gene_ids_for_gene_name(gene_name)
+  sql_tmpl <- 'SELECT ensembl_gene_id, gene_name, expr_val, cell_line_name, cancer_name FROM get_expr_vals_for_ensembl_gene_id_dataset(?ensembl_gene_id, ?ccle_metadata_id)'
+  expr_vals_for_gene_name <- data.frame()
+  for (ensembl_gene_id in ensembl_gene_ids$ensembl_gene_id) {
+    print(ensembl_gene_id)
+    sql <- sqlInterpolate(DBI::ANSI(), sql_tmpl, ensembl_gene_id = ensembl_gene_id, ccle_metadata_id = ccle_metadata_id)
+    expr_vals_for_ensembl_gene_id <- dbGetQuery(pg_conn, sql)
+    expr_vals_for_gene_name <- rbind(expr_vals_for_gene_name, expr_vals_for_ensembl_gene_id)
+  }
+  return(expr_vals_for_gene_name)
+}
+```
+
+
