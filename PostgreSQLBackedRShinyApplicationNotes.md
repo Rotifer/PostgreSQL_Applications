@@ -2,20 +2,47 @@
 # PostgreSQLShiny
 
 ## Summary
-Shiny Apps with PostgreSQL back-end.
+I will develop a PostgreSQL--backed R Shiny application for visualization and analysis of [RNA gene expression](https://en.wikipedia.org/wiki/Gene_expression) data from the [Cancer Cell Line Encyclopedia](https://portals.broadinstitute.org/ccle)
 
+## Steps in Application Development
+1. Download the data.
+2. Upload it into a PostgreSQL database that I have named *Cancer_Cell_Line_Encyclopedia*.
+3. Decompose the uploaded data into tables.
+4. Write Pl/pgSQL functionsto return the data as tables.
+5. Write R code to connect to the database, call the PL/pgSQL functions amd return the data as data frames.
+5. Write the R code for the Shiny user interface.
+6. Write some tests.
 
-This repository is a record of the actions taken to create a Shiny application to view and visualize Cancer Cell Line Enncyclopedia RNA-seq data. The data sources are [here](https://www.ebi.ac.uk/gxa/experiments/E-MTAB-2770/Downloads). 
+I realize that writing tests at the end is not the way it should be done but these notes are for learning and future reference.
 
-To Do: Add a more detailed data description.
+## Download the Data
+The source data was downloaded from the European Bioinformatics Institute Expression Atlas resource. The actual download files are [here](https://www.ebi.ac.uk/gxa/experiments/E-MTAB-2770/Downloads). 
+Once we have downloaded the data file, I will give a brief description of its structure.
 
-## Downloading the source TSV file, loading it into PostgreSQL and parsing it into tables
+**Downloading**
 
-### Downloading
-
-```
+```sh
 $ wget https://www.ebi.ac.uk/gxa/experiments-content/E-MTAB-2770/resources/ExperimentDownloadSupplier.RnaSeqBaseline/tpms.tsv
 ```
+
+At the time I downloaded this file, it contained 58,040 rows. It has four metadata lines that are identified by a hash, also known aa pound, character (#). The fifth line contains the column titles. I use a piped sequence of Unix text commands to examine this line like so:
+
+```sh
+head -5 tpms.tsv | tail -1 | tr '\t' '\n'  | cat -n
+```
+
+This sequence of commands does the following:
+* Extract the first five lines (*head -5*).
+* Extract the last of these lines (*tail -1*).
+* Replace tabs with new lines (*tr '\t' '\n'*).
+* Number the output lines (*cat -n*).
+
+**Tip**: These simple Unix text utilities can be combined using pipes to perform powerful data exploration prior to loading files into spreadsheets, R or databases. If you do not know them already, then I would recommend learning them.
+
+This gives me some useful information:
+* There are 936 columns in the file that are separated by tabs.
+* The first two columns are gene identifiers.
+* The remaining 934 columns contain the cell line identifiers and the cancer names they relate to.
 
 ### Moving the file contents to a PostgreSQL DB
 
