@@ -16,12 +16,12 @@ I will develop a PostgreSQL--backed R Shiny application for visualization and an
 I realize that writing tests at the end is not the way it should be done but these notes are for learning and future reference.
 
 ## Download and explore the data
-The source data was downloaded from the European Bioinformatics Institute Expression Atlas resource. The actual download files are [here](https://www.ebi.ac.uk/gxa/experiments/E-MTAB-2770/Downloads). 
-Once we have downloaded the data file, I will give a brief description of its structure.
+I downloaded the source data from the European Bioinformatics Institute Expression Atlas resource. The actual download files are listed [here](https://www.ebi.ac.uk/gxa/experiments/E-MTAB-2770/Downloads). 
 
+I used the *wget* tool to download the source file.
 
 ```sh
-$ wget https://www.ebi.ac.uk/gxa/experiments-content/E-MTAB-2770/resources/ExperimentDownloadSupplier.RnaSeqBaseline/tpms.tsv
+wget https://www.ebi.ac.uk/gxa/experiments-content/E-MTAB-2770/resources/ExperimentDownloadSupplier.RnaSeqBaseline/tpms.tsv
 ```
 
 At the time I downloaded this file, it contained 58,040 rows. It has four metadata lines that are identified by a hash, also known aa pound, character (#). The fifth line contains the column titles. I use a piped sequence of Unix text commands to examine this line like so:
@@ -39,16 +39,16 @@ This sequence of commands does the following:
 **Tip: These simple Unix text utilities can be combined using pipes to perform powerful data exploration prior to loading files into spreadsheets, R or databases. If you do not know them already, then I would recommend learning them.**
 
 This gives me some useful information:
-* There are 936 columns in the file that are separated by tabs.
+* There are 936 tab-separated columns in the file.
 * The first two columns are gene identifiers.
 * The remaining 934 columns contain the cell line identifiers and the cancer names they relate to.
 
 All lines after line 5  are data lines.
 
 ## Upload the data file into a PostgreSQL database
-I created a database called *Cancer_Cell_Line_Encyclopedia*. All the objects, tables, functions, etc, are stored in the default *public* schema. For more complex applications, I use multiple schemas but since this is a relative simple application, one will suffice.
+I created a database called *Cancer_Cell_Line_Encyclopedia*. All the objects, tables, functions, etc, are stored in the default *public* schema. For more complex applications, I use multiple schemas but  for this rather simple example, one will suffice.
 
-First, log in to *psql*. Assumes the port is 5432 and the password is set in the *.pgpass*.
+First, I log in to *psql* as shown below. This command assumes the port is the default 5432 and the password is set in the *.pgpass* file.
 
 ```sh
 psql -d Cancer_Cell_Line_Encyclopedia -h <host name> -U <user name>
@@ -66,21 +66,21 @@ COMMENT ON TABLE transit_tmp
 
 This table has only a single column and I have deliberately omitted the primary key. Since the data here is transitory, I've defined it as an *unlogged* table which makes it slightly more performant at the expense of persistence in the event of a system crash, see [this link](https://www.compose.com/articles/faster-performance-with-unlogged-tables-in-postgresql/) for more on this table type.
 
-I use a single *plsql \COPY* command to load the data into the *transit_tmp* table:
+After logging in to the database with the *psql* client, I use a single *plsql \COPY* command to load the data into the *transit_tmp* table:
 
 ```sql
 Cancer_Cell_Line_Encyclopedia=> \COPY transit_tmp FROM '<path to tpms.tsv file>' DELIMITER E'\b';
 ```
 
-The delimiter **'\b'** was chosen because it does **not** exist in the file and, therefore, each full line is pushed into a single column called *data_row* in the target table *transit_tmp*. I tried using a Python's *psycopg2* to do this loading but it was very slow (>10 minutes). Assuming this *psqlp* command executes without error, we now have the data in Postgres and will proceed to do all further data processing in the database.
+The delimiter **'\b'** was chosen because it does **not** exist in the file and, therefore, each full line is pushed into a single column called *data_row* in the target table *transit_tmp*. I tried using a Python's *psycopg2* to do this loading but it was very slow (>10 minutes). Assuming this *psqlp* command executes without error, I now have the data in Postgres and will proceed to do all further data processing in the database.
 
 ## Decompose the uploaded data into tables
 
-The steps here use plain SQL to decompose the file data and use PostgreSQL array manipulation heavily.
+Here are the steps:
 
 1. Store the expression values, from column three onwards, as **PostgreSQL arrays**.
 2. Record the **metadata** stored in the first four lines of the source file and prefixed with '#'.
-3. Turn the fifth line that contains the column headings for the expression values into rows where each row contains the cell line name, the cancer name and the index number of the column that will be used later to retrieve the expression values from the array. Remember that PostgreSQL arrays are 1-based! The first two column names of the input line are discarded from the table generated here because they refer to the genes. 
+3. Turn the fifth line that contains the column headings for the expression values into rows where each row contains the cell line name, the cancer name and the index number of the column that will be used later to retrieve the expression values from the array. Remember that PostgreSQL arrays are 1-based! 
 
 Here are the table definitions (see the stored comments for table descriptions):
 
@@ -124,10 +124,12 @@ FROM
 WHERE
   data_row ~ '^#';
 ```
+Note the use of the regular expression *data_row ~ '^#'* to select the metadata lines!.
+
 
 ### Storing the cell line column names as rows
 
-The SQL step here processes the line with the column names (line 5) and turns all its columns except the first two into rows. If you are not familiar with PostgreSQL arrays and the functions that generate and manipulate them, then the code will be challenging and you may need to refer to tutorials and references that describe functions such as *ARRAY_AGG*, *UNNEST*, *STRING_TO_ARRAY* and *ARRAY_TO_STRING*. It is easier to understand this quite complex nested *SELECT* SQL statement by breaking it down into its constituent parts starting with the inner-most *SELECT* named *sqi*. This *SELECT* extracts the fifth row (*OFFSET 4 LIMIT 1*) and uses the tab delimiter to brerak it into an array. The next *SELECT* named *sqo* turns the array into rows (*UNNEST*). It discards the first two rows (*OFFSET 2*), and then breaks each row into two parts: the cell line name (*cell_line_name*) and the cancer name (*cancer_name*)  using comma, **,**, as the delimiter. A complication here is that the comma character itself occurs once in some of the cancer names. The array slice *[2:3]* allows for this. The outer-most *SELECT* statement retrieves the generated values for the cell line and cancer names. It also adds two more columns: The first uses a window function *ROW_NUMBER* to generate index numbers that will be used to match the cell line and cancer names to the index for the array that will store the expression values in another table. The second value is *ccle_metadata_id*. Hard-coding it into the query like this is not a good idea but will do for this example. In fact, this whole SQL statement should be re-factored into one or more PL/pgSQL functions. 
+The SQL step here processes the line with the column names (line 5) and turns all its columns, except the first two that identify the genes, into rows. If you are not familiar with PostgreSQL arrays and the functions that generate and manipulate them, then the code will be challenging and you may need to refer to tutorials and references that describe functions such as *ARRAY_AGG*, *UNNEST*, *STRING_TO_ARRAY* and *ARRAY_TO_STRING*. It is easier to understand this quite complex nested *SELECT* SQL statement by breaking it down into its constituent parts starting with the inner-most *SELECT* named *sqi*. This *SELECT* extracts the fifth row (*OFFSET 4 LIMIT 1*) and uses the tab delimiter to break it into an array. The next *SELECT* named *sqo* turns the array into rows (*UNNEST*). It discards the first two rows (*OFFSET 2*), and then breaks each row into two parts: the cell line name (*cell_line_name*) and the cancer name (*cancer_name*)  using comma, **,**, as the delimiter. A complication here is that the comma character itself occurs once in some of the cancer names. The array slice *[2:3]* allows for this. The outer-most *SELECT* statement retrieves the generated values for the cell line and cancer names. It also adds two more columns: The first uses a window function *ROW_NUMBER* to generate index numbers that will be used to match the cell line and cancer names to the index for the array that will store the expression values in another table. The second value is *ccle_metadata_id*. Hard-coding it into the query like this is not a good idea but will do for this example. In fact, this whole SQL statement should be re-factored into one or more PL/pgSQL functions. 
 
 
 ```sql
@@ -152,7 +154,7 @@ FROM
 
 ### Storing the gene expression values
 
-The SQL statement to do this is considerable simpler than the previous one. The inner *SELECT* statement returns all data lines by using a regulary expression (*data_row ~ '^ENSG'*). The data rows are then turned into arrays by splitting on tabs and the required array elements are extracted and named. All the expression values are stored as an array (*[3:936]*). Once again, we have the hard-coded value for *1::INTEGER* for the *ccle_metadata_id* column.
+The SQL statement to do this is considerable simpler than the previous one. The inner *SELECT* statement returns all data lines by using a regulary expression (*data_row ~ '^ENSG'*). The data rows are then turned into arrays by splitting on tabs as before and the required array elements are extracted and named. All the expression values are stored as an array (*[3:936]*). Once again, we have the hard-coded value for *1::INTEGER* for the *ccle_metadata_id* column.
 
 ```sql
 INSERT INTO gene_expression_values(ensembl_gene_id, gene_name, expr_vals, ccle_metadata_id)
@@ -170,9 +172,9 @@ FROM
     data_row ~ '^ENSG') sq;
 ```
 
-## Write Pl/pgSQL functions to return the data as tables
+## Write PL/pgSQL functions to return the data as tables
 
-Now that the data is structured in tables, we need a way to extract data into a form that is usable in R. This requires turning the PostgreSQL expression value arrays into rows and matching these rows with the cancer and cell line types. We are interested in returning the expression data as a table for a given gene name. The example given here contains data for only one data set, TPMS, but we want to allow for storage of other data types so we need to filter so as to only return the expression data for a one data set regardless of how many we have stored in the database. The value for *ccle_metadata_id* from the *ccle_metadata* table has been posted to the two other data tables as a foreign key for this very purpose (the ugly, hard-coded *1::INTEGER* value in the *INSERT* statements above). To return the table, I have defined a PL/pgSQL function that takes two parameters: the gene name and the *ccle_metadata_id*. Before I define this function, I need an additional helper functions to determine if the expression values are numeric and a function to return the Ensembl IDs for a given gene name. Some of the data points in the input file are *null*. When I split on tabs to create the arrays, these are represented as empty strings. And no, empty strings are not NULL despite what Oracle thinks. I want to ensure that these empty strings are returned as true NULLs in the output table. The following Boolean returning function does the numeric test:
+Now that the data is structured in tables, I need a way to extract data into a form that is usable in R. This requires turning the PostgreSQL expression value arrays into rows and matching these rows with the cancer and cell line types. I am interested in returning the expression data as a table for a given gene name. The example given here contains data for only one data set, TPMS, but I want to allow for storage of other data types so I need to filter so as to only return the expression data for one data set regardless of how many we have stored in the database. The value for *ccle_metadata_id* from the *ccle_metadata* table has been posted to the two other data tables as a foreign key for this very purpose (the ugly, hard-coded *1::INTEGER* value in the *INSERT* statements above). To return the table, I have defined a PL/pgSQL function that takes two parameters: the Ensembl gene ID and the *ccle_metadata_id*. Before I define this function, I need additional helper functions to determine if the expression values are numeric and a function to return the Ensembl IDs for a given gene name. Some of the expression values in the input file are *null*. When I split on tabs to create the arrays, these are represented as empty strings. And no, empty strings are not NULL despite what Oracle thinks. I want to ensure that these empty strings are returned as true NULLs in the output table. The following Boolean-returning function does the numeric test:
 
 ```plpgsql
 CREATE OR REPLACE FUNCTION isnumeric(text) RETURNS BOOLEAN AS $$
@@ -189,7 +191,7 @@ LANGUAGE plpgsql IMMUTABLE;
 COMMENT ON FUNCTION isnumeric(text) IS $qq$ Purpose: Check if the given argument is a number. Used to check substrings created by splitting strings into arrays. Copied verbatim from this source: http://stackoverflow.com/questions/16195986/isnumeric-with-postgresql. $qq$;
 ```
 
-The second helper function is needed because there are multiple entries for certain gene name, that is, the same gene name can map to one or more Ensembl gene IDs. I am not going to explain why this is so but it is a complication that needs to be accountd for. Since gene names are much more user-friendly than the Ensembl gene IDs, we need a function to return all Ensembl gene iDs for a given gene name. Here is the function:
+The second helper function is needed because there are multiple entries for some gene names, that is, the same gene name can map to one or more Ensembl gene IDs. I am not going to explain why this is so but it is a complication that needs to be accountd for. Since gene names are much more user-friendly than the Ensembl gene IDs, I need a function to return all Ensembl gene iDs for a given gene name. Here is the function:
 
 ```plpgsql
 CREATE OR REPLACE FUNCTION get_ensembl_gene_ids_for_gene_name(p_gene_name TEXT)
@@ -274,12 +276,13 @@ I can test this function from the command line as follows:
 ```sh
 psql -h <your host name> -d Cancer_Cell_Line_Encyclopedia  -U <your user name> -A -F $'\t' -X -t -c "SELECT * FROM get_expr_vals_for_ensembl_gene_id_dataset('ENSG00000004468', 1)" -o ENSG00000004468_ccle_expression.tsv
 ```
+The command given above generates a tab-separated file with each expression value and its associated gene and cancer name and cancer line details in a separate row.
 
-This PL/pgSQL function merits some explanation. Like the *SELECT* statements used earlier to populate tables, it uses nested queries, array manipulation and a window function. The inner-most *SELECT* named *sqi* turns the expression arrays into rows. The next statement named *sqo* uses the window function *ROW_NUMER* to add row numbers (*ROW_NUMBER() OVER() expr_val_idx*). These generated row numbers are then used to join the expression values to their corresponding cancer cell line name and cancer name values (*JOIN cell_line_cancer_type_idx_map clctim ON sqo.expr_val_idx = clctim.expr_val_idx*). The *isnumeric* helper function defined earlier is used to cast numeric strings to REAL and empty strings to NULLs.
+This PL/pgSQL function is really just one large SQL statement containing nested *SELECT* sub-statements. The PL/pgSQL provides a wrapper around the SQL to handle parameters and to return the table generated by the SQL. Since this is the main PL/pgSQL function of the application, it merits some explanation. Like the *SELECT* statements used earlier to populate tables, it uses nested queries, array manipulation and a window function. The inner-most *SELECT* named *sqi* turns the expression arrays into rows. The next statement named *sqo* uses the window function *ROW_NUMER* to add row numbers (*ROW_NUMBER() OVER() expr_val_idx*) to its output. These generated row numbers are then used to join the expression values to their corresponding cancer cell line name and cancer name values (*JOIN cell_line_cancer_type_idx_map clctim ON sqo.expr_val_idx = clctim.expr_val_idx*). The *isnumeric* helper function defined earlier is used to cast numeric strings to REAL and empty strings to NULLs.
 
 ## Write R code to call PL/pgSQL functions to return data frames
 
-Now, finally, I can write some R code to call the PL/pgSQL functions defined earlier as reuired. To do this, I created a an R project in R Studio. This is going to be an R Shiny application but that does not matter for now. I added a file called *global.R* to the project. This will be visible to the R Shiny application files, *ui.R* and *server.R*, that I will create later.
+Now, finally, I can write some R code to call the PL/pgSQL functions defined earlier as required. To do this, I created an R project in R Studio. This is going to be an R Shiny application but that does not matter for now. I added a file called *global.R* to the project. This will be visible to the R Shiny application files, *ui.R* and *server.R*, that I will create later.
 
 Links: https://shiny.rstudio.com/articles/sql-injections.html
 
@@ -291,7 +294,7 @@ library(DBI)
 pool <- pool::dbPool(
   drv = RPostgreSQL::PostgreSQL(),
   dbname = "Cancer_Cell_Line_Encyclopedia",
-  host = "192.168.49.15",
+  host = "<host name>",
   user = "shiny_reader",
   port = 5432,
   password = "readonly"
