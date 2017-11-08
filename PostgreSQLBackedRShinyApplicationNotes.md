@@ -284,7 +284,7 @@ This PL/pgSQL function is really just one large SQL statement containing nested 
 
 Now, finally, I can write some R code to call the PL/pgSQL functions defined earlier. To do this, I created an R project in R Studio. This is going to be an R Shiny application but that does not matter for now. I added a file called *global.R* to the project. This will be used by the R Shiny application files, *ui.R* and *server.R*, that I will create later.
 
-Links: https://shiny.rstudio.com/articles/sql-injections.html
+
 
 ```r
 library(pool)
@@ -328,4 +328,15 @@ get_expr_vals_for_gene_name <- function(gene_name, ccle_metadata_id) {
 }
 ```
 
+I installed the *pool* package to manage the database connection. It greatly simplifies the whole process and ensures that connections are re-used and cleaned up as required. I learned about the *pool* package by reading this [RStudio article](https://shiny.rstudio.com/articles/pool-basics.html). I created a read-only account in PostgreSQL called *shiny_reader* and set the PL/pgSQL functions to be readable to this account by adding the *SECURITY DEFINER* clause to the end of the function definitions. R users can thereby extract data from the database but cannot make any changes and cannot modify or view the underlying tables. Essentially, I want a one-way data flow from the database to the R client so that I so not have to worry about data data integrity or transactions. Although all the database interaction is mediated by a read-only account, I have also used the *DBI sqlInterpolate* function to pass parameters to the SQL statements. It is good practice to use this type of mechanism in any client language to prevent SQL injection. SQL injection and its prevention in R is well described in [this article](Links: https://shiny.rstudio.com/articles/sql-injections.html).
+
+If I source the *global.R* file shown above in an R Studio session, I can test the function *get_expr_vals_for_gene_name* to as follows:
+
+```r
+expr_vals_for_gene_name <- get_expr_vals_for_gene_name('il2ra', 1)
+```
+
+I can then view the resulting data frame and manipulate it in whatevr manner I wish. However, to turn this into an application that I can share with end users, I need to turn it into a Shiny application.
+
+## Write the R code for the Shiny user interface
 
