@@ -339,4 +339,45 @@ expr_vals_for_gene_name <- get_expr_vals_for_gene_name('il2ra', 1)
 I can then view the resulting data frame and manipulate it in whatevr manner I wish. However, to turn this into an application that I can share with end users, I need to turn it into a Shiny application.
 
 ## Write the R code for the Shiny user interface
+Very basic R Shiny application:
 
+```r
+# ui.R
+library(shiny)
+library(DT)
+library(plotly)
+
+shinyUI(fluidPage(
+  # Application title
+  headerPanel(
+    "Extract CCLE Data for a Gene"
+  ),
+  
+  fluidRow(
+    textInput("gene_name", "Gene Name"),
+    numericInput('ccle_metadata_id', 'Metadata ID', value = 1),
+    actionButton("get_data", "Fetch Data")
+  ),
+  hr(),
+  mainPanel(h3("Mean expression values by cancer type for selected gene"),
+            plotlyOutput("ccle_plot"),
+            hr(),
+            h3("All expression values for selected gene"),
+            DT::dataTableOutput("result"))
+  
+))
+
+# server.R
+shinyServer(function(input, output) {
+  expr_vals_for_gene_name <- eventReactive(input$get_data, {
+      get_expr_vals_for_gene_name(input$gene_name, input$ccle_metadata_id)
+    })
+  output$ccle_plot <- renderPlotly(ggplot(expr_vals_for_gene_name(), 
+                                        aes(x=factor(cancer_name), 
+                                            y=expr_val)) 
+                                 + theme(axis.title.x=element_blank(),
+                                         axis.text.x=element_blank())
+                                 + stat_summary(fun.y="mean", geom="bar"))
+  output$result <- DT::renderDataTable(expr_vals_for_gene_name())
+})
+```
