@@ -383,5 +383,5 @@ shinyServer(function(input, output) {
 ```
 When I run the Shiny app and enter a gene name, I see the following:
 
-![Screenshot](screenshot.png)
+![Shiny output as a screenshot](screenshot_shiny_app.png)
 
