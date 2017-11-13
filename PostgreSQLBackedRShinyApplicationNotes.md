@@ -385,3 +385,5 @@ When I run the Shiny app and enter a gene name, I see the following:
 
 ![Shiny output as a screenshot](screenshot_shiny_app.png)
 
+
+This is a very basic, but functional, Shiny application. I will return to this page to describe the R code in more detail
