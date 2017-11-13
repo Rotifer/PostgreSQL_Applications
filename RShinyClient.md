@@ -1,5 +1,5 @@
 
-# PostgreSQLShiny
+# R Shiny Client
 
 ## Summary
 I will develop a PostgreSQL--backed R Shiny application for visualization and analysis of [RNA gene expression](https://en.wikipedia.org/wiki/Gene_expression) data from the [Cancer Cell Line Encyclopedia](https://portals.broadinstitute.org/ccle)
