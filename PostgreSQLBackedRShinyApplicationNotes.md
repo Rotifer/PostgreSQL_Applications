@@ -381,3 +381,7 @@ shinyServer(function(input, output) {
   output$result <- DT::renderDataTable(expr_vals_for_gene_name())
 })
 ```
+When I run the Shiny app and enter a gene name, I see the following:
+
+![Screenshot](screenshot.png)
+
