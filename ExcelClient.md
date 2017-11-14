@@ -14,3 +14,77 @@ I have shown how to use PostgreSQL as a back-end for a Shiny application [here](
 5. Write the *recordset data to a new sheet.
 6. Programmatically create a pivot table and pivot chart.
 
+## Extra PL/pgSQL Functions
+I want to minimize the amount of work done in VBA. In the R client version, I defined two functions in the *server.R* file for retrieving data from the database. The first returns all the Ensembl gene IDs for a given gene while the second one uses this list to build the data frame by concatentaing the data frames for each Ensembl gene ID. For the Excel VBA version, I want to roll these two steps into one so I defined a new PL/pgSQL function that does this. It also gives me the opportunity to use the *RECORD* and the *RETURN NEXT* construct. Here it is:
+
+```plpgsql
+CREATE OR REPLACE FUNCTION get_expr_vals_for_gene_name(p_gene_name TEXT, p_metadata_id INTEGER)
+RETURNS TABLE(ensembl_gene_id TEXT, gene_name TEXT, expr_val REAL, cell_line_name TEXT, cancer_name TEXT)
+AS
+$$
+DECLARE
+  l_ensembl_gene_ids TEXT[];
+  l_ensembl_gene_id TEXT;
+  r_row RECORD;
+BEGIN
+  SELECT ARRAY_AGG(f.ensembl_gene_id) INTO l_ensembl_gene_ids FROM get_ensembl_gene_ids_for_gene_name(p_gene_name) f;
+  FOREACH l_ensembl_gene_id IN ARRAY l_ensembl_gene_ids
+  LOOP
+    FOR r_row IN
+      (SELECT
+        gev.ensembl_gene_id, 
+        gev.gene_name, 
+        gev.expr_val, 
+        gev.cell_line_name, 
+        gev.cancer_name
+      FROM
+        get_expr_vals_for_ensembl_gene_id_dataset(l_ensembl_gene_id,  p_metadata_id) gev)
+    LOOP
+      ensembl_gene_id := r_row.ensembl_gene_id;
+      gene_name := r_row.gene_name;
+      expr_val := r_row.expr_val;
+      cell_line_name := r_row.cell_line_name;
+      cancer_name := r_row.cancer_name;
+      RETURN NEXT;
+    END LOOP;
+  END LOOP;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON  FUNCTION get_expr_vals_for_gene_name(p_gene_name TEXT, p_metadata_id INTEGER) IS
+$qq$
+Purpose: Return all records for a given gene name and metadata ID. Allows for gene names such as "MAL2@ that have multiple entries for
+the same name. The outer loop iterates over all the Ensembl gene IDs found for the given gene name and the inner loop then
+passes this Ensembl gene ID to the function "get_expr_vals_for_ensembl_gene_id_dataset". The output table is then populated with
+the assignments from the RECORD and returned using the "RETURN NEXT" construct.
+Example: SELECT ensembl_gene_id, gene_name, expr_val, cell_line_name, cancer_name FROM get_expr_vals_for_gene_name('mal2', 1);
+$qq$
+```
+
+I also need a function to return all the metadata IDs so that they can be used in the form listbox for user selection. It might appear like over-kill to write a function for a task such as this that simply selects all the values for one column in a table. Why not use a simple SQL statement in the VBA code? My reasons for doing it this way are two-fold:
+
+1. The account I am using has been set up so that it has no privileges on any tables, views or any other objects except stored functions.
+2. I can re-use this same function in other clients so that if anything changes in the definition, I need only update the stored function. Here is this simple function:
+
+```plpgsql
+CREATE OR REPLACE FUNCTION get_metadata_ids()
+RETURNS TABLE(metadata_id INTEGER)
+AS
+$$
+BEGIN
+  RETURN QUERY
+  SELECT ccle_metadata_id FROM ccle_metadata;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION get_metadata_ids() IS
+$qq$
+Purpose: Get a list of all metadata IDs. To be used by accounts that can only execute stored PL/pgSQLO functions and cannot access tables or views.
+Example: SELECT metadata_id FROM get_metadata_ids();
+$qq$;
+```
+
