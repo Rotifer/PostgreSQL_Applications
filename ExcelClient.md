@@ -149,7 +149,108 @@ End Sub
 
 The "OK!" message box tells me that my set-up is working and that I have all the necessary pieces in place to connect to the PostgreSQL database.
 
-I can now check that
+I can now check that I can call the PL/pgSQL stored functions defined above. I have defined VBA to call these functions in a **class**. I know that VBA's object-oriented feature set is incomplete but it is still worth using, especially for bigger projects. The class I have written is called *DataRetriever* and it contains just two methods:
 
+```vba
+Option Explicit
 
+Private m_pgConn As ADODB.Connection
+' Set the m_pgConn member.
+Public Function Setup(pgConn As ADODB.Connection) As Boolean
+    Set m_pgConn = pgConn
+    Setup = True
+End Function
+' Return a recordset for a given gene name and metadata ID by calling the stored procedure "get_expr_vals_for_gene_name"
+Public Function GetExprValsForGeneName(geneName As String, metadataID As Integer) As ADODB.Recordset
+    Dim sprocName As String
+    Dim cmd As ADODB.Command
+    Dim param1 As ADODB.Parameter
+    Dim param2 As ADODB.Parameter
+    Dim rs As ADODB.Recordset
+    Set cmd = New ADODB.Command
+    sprocName = "get_expr_vals_for_gene_name"
+    cmd.ActiveConnection = m_pgConn
+    cmd.CommandType = adCmdStoredProc
+    cmd.CommandText = sprocName
+    Set param1 = cmd.CreateParameter("gene_name", adVarChar, adParamInput, Len(geneName), geneName)
+    Set param2 = cmd.CreateParameter("metadata_id", adInteger, adParamInput, , metadataID)
+    cmd.Parameters.Append param1
+    cmd.Parameters.Append param2
+    Set rs = cmd.Execute
+    Set cmd = Nothing
+    Set GetExprValsForGeneName = rs
+End Function
+' Called a PL/pgSQL stored function and convert the resulting table into an array and return it.
+' To be used to populate a listbox in the application form.
+Function GetMetadataIDs() As String()
+    Dim rs As ADODB.Recordset
+    Dim cmd As ADODB.Command
+    Dim sprocName As String
+    Dim metadataIDs() As String
+    Dim rowNum As Integer: rowNum = 0
+    
+    sprocName = "get_metadata_ids"
+    Set cmd = New ADODB.Command
+    cmd.ActiveConnection = m_pgConn
+    cmd.CommandType = adCmdStoredProc
+    cmd.CommandText = sprocName
+    Set rs = cmd.Execute
+    rs.MoveFirst
+    Do Until rs.EOF
+        ReDim Preserve metadataIDs(rowNum)
+        metadataIDs(rowNum) = CStr(rs.Fields(0))
+        rowNum = rowNum + 1
+        rs.MoveNext
+    Loop
+    rs.Close
+    Set rs = Nothing
+    Set cmd = Nothing
+    GetMetadataIDs = metadataIDs
+End Function
+```
 
+Ultimately, I want to use this class in a VBA form to write calues to sheets. Before I add the form, I use a plain module to create an instance of this class and test its methods. This module is simply called *testModDataRetriever*:
+
+```vba
+Option Explicit
+' Module Name: testModDataRetriever
+' Test that the methods defined in class *DataRetriever* work as expected.
+
+' Write all the expression values for a hard-coded gene name to the active cell of the active sheet.
+Private Sub GetExpressionDataForGene()
+    Dim conn As ADODB.Connection
+    Dim pwd As String
+    Dim geneName As String: geneName = "CD38"
+    Dim metadataID As Integer: metadataID = 1
+    Dim dataRtvr As DataRetriever
+    Dim rs As Recordset
+    pwd = "readonly"
+    Set conn = modPgConnect.GetPgConnection("Cancer_Cell_Line_Encyclopedia", "<host name>", "shiny_reader", 5432, pwd)
+    Set dataRtvr = New DataRetriever
+    dataRtvr.Setup conn
+    Set rs = dataRtvr.GetExprValsForGeneName(geneName, metadataID)
+    ActiveCell.CopyFromRecordset rs
+    Set rs = Nothing
+    modPgConnect.ClosePgConnection conn
+    MsgBox "ok!"
+End Sub
+
+' Display the first metadata ID in a returned array in a message box.
+Private Sub GetMetadataIDs()
+    Dim conn As ADODB.Connection
+    Dim pwd As String
+    Dim dataRtvr As DataRetriever: Set dataRtvr = New DataRetriever
+    Dim metadataIDs() As Integer
+    
+    pwd = "readonly"
+    Set conn = modPgConnect.GetPgConnection("Cancer_Cell_Line_Encyclopedia", "192.168.49.15", "shiny_reader", 5432, pwd)
+    dataRtvr.Setup conn
+    metadataIDs = dataRtvr.GetMetadataIDs()
+    modPgConnect.ClosePgConnection conn
+    MsgBox metadataIDs(0)
+End Sub
+```
+
+The Excel VBA *Range* object has a very convenient method called *CopyFromRecordset* that takes a *ADODB.Recordset* instance and writes its rows to the range. I use it here to dump the entire *Recordset* rows and columns into a sheet. It saves me having to loop over the recordset in a nested loop to write rows and columns to the target sheet.
+
+I have now defined all the VBA and PL/pgSQL code that I need for a VBA form that will allow me to select a metadata ID from a listbox and a gene name from a textbox and then write the output data to a new Excel workbook that I can save where I wish. I'll also add VBA code to automatically generate pivot charts and pivot tables for the output data.
