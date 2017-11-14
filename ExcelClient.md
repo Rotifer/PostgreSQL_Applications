@@ -88,3 +88,45 @@ Example: SELECT metadata_id FROM get_metadata_ids();
 $qq$;
 ```
 
+## Calling PL/pgSQL in VBA
+In order for this to work I had to install the *pgODBC* library and reference the Active X Data Objects (ADO) library in the Visual Basic Editor (Tools->References). The first thing to verify is that I can connect to the database using same read-only account as I used in the R client. I have put the VBA code to create the connection, open and close it into a VBA module called *modPgConnect*:
+
+```vba
+Option Explicit
+' modPgConnect: A module for encapsulating database connection, creation, opening and closing.
+' Return an opened *Connection* object for the target database
+Public Function GetPgConnection(dbName As String, server As String, userName As String, portNumber As Integer, pwd As String) As ADODB.Connection
+    Dim connStr As String
+    Dim pgConn As ADODB.Connection
+    connStr = "Driver={PostgreSQL Unicode};Database=" & dbName & ";server=" & server & ";UID=" & userName & ";port=" & CStr(portNumber) & ";Pwd=" & pwd
+    Set pgConn = New ADODB.Connection
+    On Error GoTo ErrTrap
+    pgConn.Open connStr
+    Set GetPgConnection = pgConn
+    Exit Function
+ErrTrap:
+    Err.Raise vbObjectError + 1000, "modPgConnect.GetPgConnection", Err.Description
+End Function
+' A function to close the *Connection* object and trap errors for an unopened or already closed *Connection*.
+Public Function ClosePgConnection(pgConn As ADODB.Connection) As String
+    On Error GoTo ErrTrap
+    pgConn.Close
+    ClosePgConnection = "Connection Closed!"
+    Exit Function
+ErrTrap:
+    If Err.Description = "Object variable or With block variable not set" Then
+        ClosePgConnection = "Database has not been opened"
+        Exit Function
+    ElseIf Err.Description = "Operation is not allowed when the object is closed." Then
+        ClosePgConnection = "Database already closed"
+        Exit Function
+    End If
+    Err.Raise vbObjectError + 1000, "modPgConnect.ClosePgConnection", Err.Description
+End Function
+
+```
+
+
+
+
+
