@@ -126,7 +126,30 @@ End Function
 
 ```
 
+Here is a simple VBA *Sub* that I wrote to test this module:
 
+```vba
+Option Explicit
+' Module: modPgConnect
+' Tests modPgConnect to ensure that Excel VBA can connect to the target PostgreSQL database.
+Sub testConnection()
+    Dim pgConn As ADODB.Connection
+    Dim dbName As String: dbName = "Cancer_Cell_Line_Encyclopedia"
+    Dim hostName As String: hostName = "<your host name>"
+    Dim userName As String: userName = "shiny_reader"
+    Dim portNum As Integer: portNum = 5432
+    Dim pwd As String: pwd = "readonly"
+    Dim dataRtvr As DataRetriever
+
+    Set pgConn = modPgConnect.GetPgConnection(dbName, hostName, userName, portNum, pwd)
+    MsgBox "All OK!"
+    modPgConnect.ClosePgConnection pgConn
+End Sub
+```
+
+The "OK!" message box tells me that my set-up is working and that I have all the necessary pieces in place to connect to the PostgreSQL database.
+
+I can now check that
 
 
 
