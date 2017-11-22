@@ -31,7 +31,7 @@ $qq$;
 2. Get details for a given gene identifier as JSONB by calling a REST API
 
 ```plpythonu
-CREATE OR REPLACE FUNCTION get_ensembl_json_for_id(p_ensembl_gene_id TEXT)
+CREATE OR REPLACE FUNCTION get_ensembl_json_for_gene_id(p_ensembl_gene_id TEXT)
 RETURNS JSONB
 AS
 $$
@@ -42,20 +42,21 @@ $$
 	ext = "/lookup/id/%s?expand=1" % p_ensembl_gene_id
 	response = requests.get(server+ext, headers={ "Content-Type" : "application/json"})
 	if not response.ok:
-		response.raise_for_status()
+		return None
  	return json.dumps(response.json())
 $$
 LANGUAGE 'plpythonu'
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION get_ensembl_json_for_id(TEXT) IS
+COMMENT ON FUNCTION get_ensembl_json_for_gene_id(TEXT) IS
 $qq$
 Purpose: Return a JSONB object for a given Ensembl gene ID by calling the Ensembl REST API.
 Example:
 SELECT *
 FROM
-  jsonb_each_text(get_ensembl_json_for_id('ENSG00000157764'))
+  jsonb_each_text(get_ensembl_json_for_gene_id('ENSG00000157764'))
 Note: This function has been declared as "STABLE" rather than "IMMUTABLE" because the data served from the REST API can change over time as the Ensembl resource is updated.
+It returns NULL on error. 
 $qq$;
 ```
 
