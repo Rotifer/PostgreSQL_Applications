@@ -157,3 +157,82 @@ from the JSON and returns a table.
 An exception is raised if the gene symbol is not recognised.
 Example: SELECT * FROM ensembl.get_variant_table_for_gene_symbol('CD38', 'homo_sapiens');
 $qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_variation_info_as_json(p_variation_id TEXT, p_species_name TEXT)
+RETURNS JSONB
+AS
+$$
+DECLARE
+  l_rest_url_ext TEXT := '/variation/%s/%s?content-type=application/json';
+  l_variation_details JSONB;
+BEGIN
+  l_rest_url_ext := FORMAT(l_rest_url_ext, p_species_name, p_variation_id);
+  l_variation_details := ensembl.get_ensembl_json(l_rest_url_ext);
+  RETURN l_variation_details;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_variation_info_as_json(TEXT, TEXT) IS
+$qq$
+Purpose: Return details for a given variation name and species name.
+Example: SELECT * FROM ensembl.get_variation_info_as_json('rs7412', 'homo_sapiens');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_protein_ids_table_for_gene_ids(p_ensembl_gene_id TEXT)
+RETURNS TABLE(ensembl_protein_id TEXT, is_canonical TEXT, translation_length INTEGER)
+AS
+$$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM
+    (SELECT
+      jsonb_array_elements(gene_details->'Transcript')->'Translation'->>'id' ensembl_protein_id,
+      jsonb_array_elements(gene_details->'Transcript')->>'is_canonical' is_canonical,
+      CAST(jsonb_array_elements(gene_details->'Transcript')->'Translation'->>'length' AS INTEGER) translation_length
+    FROM
+      (SELECT ensembl.get_details_for_id_as_json(p_ensembl_gene_id) gene_details) sqi) sqo
+  WHERE
+    sqo.ensembl_protein_id IS NOT NULL;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_protein_ids_table_for_gene_ids(TEXT) IS
+$qq$
+Purpose: Given an Ensembl gene ID, return a table listing all the Ensembl protein IDs for it giving the translation length
+and a flag to inform if it is the canonical sequence for that gene.
+Example: SELECT * FROM ensembl.get_protein_ids_table_for_gene_ids('ENSG00000004468');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_protein_sequence_as_text_for_gene_id(p_ensembl_gene_id TEXT)
+RETURNS TEXT
+AS
+$$
+DECLARE
+  l_ensembl_protein_id TEXT;
+  l_rest_url_ext TEXT := '/sequence/id/%s?content-type=application/json';
+  l_sequence_as_json JSONB;
+  l_sequence TEXT;
+BEGIN
+  SELECT ensembl_protein_id INTO l_ensembl_protein_id 
+  FROM 
+    ensembl.get_protein_ids_table_for_gene_ids(p_ensembl_gene_id);
+  l_rest_url_ext := FORMAT(l_rest_url_ext, l_ensembl_protein_id);
+  l_sequence_as_json := ensembl.get_ensembl_json(l_rest_url_ext);
+  l_sequence := l_sequence_as_json->>'seq';
+  RETURN l_sequence;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_protein_sequence_as_text_for_gene_id(TEXT) IS
+$qq$
+Purpose: Return the canonical protein sequence for a given Ensembl gene ID.
+Example: SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSG00000130203');
+$qq$
+
