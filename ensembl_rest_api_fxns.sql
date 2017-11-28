@@ -236,3 +236,25 @@ Purpose: Return the canonical protein sequence for a given Ensembl gene ID.
 Example: SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSG00000130203');
 $qq$
 
+CREATE OR REPLACE FUNCTION ensembl.get_vep_for_variation_id(p_variation_id TEXT, p_species_name TEXT)
+RETURNS JSONB
+AS
+$$
+DECLARE
+ l_rest_url_ext TEXT := '/vep/%s/id/%s?content-type=application/json';
+ l_vep_for_variation_id_json JSONB;
+BEGIN
+  l_rest_url_ext := FORMAT(l_rest_url_ext, p_species_name, p_variation_id);
+  l_vep_for_variation_id_json := ensembl.get_ensembl_json(l_rest_url_ext);
+  RETURN l_vep_for_variation_id_json;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_vep_for_variation_id(TEXT, TEXT) IS
+$qq$
+Purpose: Return the Variant Effect Predictor JSON for a given species name and variation ID.
+Notes: The returned JSON is an array that contains some complex nested objects.
+Exampl: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
+$qq$
