@@ -258,3 +258,19 @@ Purpose: Return the Variant Effect Predictor JSON for a given species name and v
 Notes: The returned JSON is an array that contains some complex nested objects.
 Exampl: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
 $qq$
+
+-- There are a lot of functions here, this view is handy for viewing them.
+CREATE OR REPLACE VIEW ensembl.vw_custom_functions AS
+SELECT 
+  p.proname AS funcname,  
+  d.description, 
+  n.nspname
+FROM pg_proc p
+  INNER JOIN pg_namespace n ON n.oid = p.pronamespace
+    LEFT JOIN pg_description As d ON (d.objoid = p.oid )
+WHERE
+  nspname = 'ensembl'
+ORDER BY 
+  n.nspname;
+COMMENT ON VIEW ensembl.vw_custom_functions IS 'Lists all custom functions in the schema "ensembl". Taken from http://www.postgresonline.com/journal/archives/215-Querying-table,-view,-column-and-function-descriptions.html.';
+
