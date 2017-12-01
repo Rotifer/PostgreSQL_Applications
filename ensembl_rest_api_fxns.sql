@@ -274,3 +274,18 @@ ORDER BY
   n.nspname;
 COMMENT ON VIEW ensembl.vw_custom_functions IS 'Lists all custom functions in the schema "ensembl". Taken from http://www.postgresonline.com/journal/archives/215-Querying-table,-view,-column-and-function-descriptions.html.';
 
+-- Pulling out sequences to test clustalw call from biopython schema
+-- Using the Ensembl API to get sequence for a gene in human and its ortholog in Macaque.
+-- Here is the view definition with the two species:
+CREATE OR REPLACE VIEW ensembl.vw_cd38_aa_seq_human_macaque AS
+SELECT
+  aa_seq,
+  'homo_sapiens' species
+FROM
+  (SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSG00000004468') aa_seq) sq_human
+UNION 
+SELECT
+  aa_seq,
+  'macaca_mulatta' species
+FROM
+  (SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSMMUG00000015298')  aa_seq) sq_macaque; -- CD38_macaca_mulatta
