@@ -259,6 +259,187 @@ Notes: The returned JSON is an array that contains some complex nested objects.
 Exampl: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
 $qq$
 
+
+CREATE OR REPLACE FUNCTION ensembl.get_gene_id_for_species_name(p_species_name TEXT, p_gene_name TEXT)
+RETURNS TEXT
+AS
+$$
+DECLARE
+  l_gene_details JSONB;
+  l_gene_id TEXT;
+BEGIN
+  l_gene_details := ensembl.get_details_for_symbol_as_json(p_gene_name, p_species_name);
+  SELECT l_gene_details->>'id' INTO l_gene_id;
+  RETURN l_gene_id;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_gene_id_for_species_name(TEXT, TEXT) IS
+$qq$
+Purpose: Return the Ensembl gene ID for a given gene name and species name.
+Example: SELECT ensembl.get_gene_id_for_species_name('homo_sapiens', 'CD38');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_fastas_for_species_gene(p_species_names TEXT[], p_gene_name TEXT)
+RETURNS TEXT
+AS
+$$
+DECLARE
+  l_species_name TEXT;
+  l_ensembl_gene_id TEXT;
+  l_gene_aa_sequence TEXT;
+  l_gene_sequence_fasta TEXT := '';
+BEGIN
+  FOREACH l_species_name IN ARRAY p_species_names
+  LOOP
+    l_ensembl_gene_id := ensembl.get_gene_id_for_species_name(l_species_name, p_gene_name);
+    l_gene_aa_sequence := ensembl.get_protein_sequence_as_text_for_gene_id(l_ensembl_gene_id);
+    l_gene_sequence_fasta := l_gene_sequence_fasta || '>' || p_gene_name || '|' || l_species_name || E'\n'
+                               || l_gene_aa_sequence || E'\n';
+  END LOOP;
+  RETURN TRIM(l_gene_sequence_fasta);
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_fastas_for_species_gene(TEXT[], TEXT) IS
+$qq$
+Purpose: Given an array of species names and a gene name, return the amino acid sequences for the for each given species names.
+Example: SELECT ensembl.get_fastas_for_species_gene(ARRAY['homo_sapiens', 'mus_musculus'], 'CD38');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_xref_info_for_ensembl_id(p_ensembl_id TEXT)
+RETURNS JSONB
+AS
+$$
+DECLARE
+  l_rest_url_ext TEXT := '/xrefs/id/%s?content-type=application/json';
+  l_xref_info JSONB;
+BEGIN
+  l_rest_url_ext := FORMAT(l_rest_url_ext, p_ensembl_id);
+  l_xref_info := ensembl.get_ensembl_json(l_rest_url_ext);
+  RETURN l_xref_info;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_xref_info_for_ensembl_id(TEXT) IS
+$qq$
+Purpose: Return JSON containing details of all cross-references for the given Enseml ID. 
+Notes: This can be any sort of ID (gene, protein transcript) for any species in Ensembl. 
+It is assumed to begin with "ENS".
+Example: SELECT * FROM ensembl.get_xref_info_for_ensembl_id('ENSG00000004468');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_xref_table_for_ensembl_id(p_ensembl_id TEXT)
+RETURNS TABLE(primary_id TEXT, dbname TEXT)
+AS
+$$
+DECLARE
+  l_rest_url_ext TEXT := '/xrefs/id/%s?content-type=application/json';
+  l_xref_info JSONB := ensembl.get_xref_info_for_ensembl_id(p_ensembl_id);
+BEGIN
+  RETURN QUERY
+  SELECT
+    xref_row->>'primary_id',
+    xref_row->>'dbname'
+  FROM
+    (SELECT
+       jsonb_array_elements(l_xref_info) xref_row) xref;
+END;
+$$
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_xref_table_for_ensembl_id(TEXT) IS
+$qq$
+Purpose: Return a table of desired values extracted from JSON with full cross-reference information for the given Ensembl ID.
+Notes: The Ensembl ID can be any type of valid ID, gene protein, etc.
+It is assumed to begin with "ENS".
+Example: SELECT * FROM ensembl.get_xref_table_for_ensembl_id('ENSG00000004468');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_uniprot_id_for_ensembl_gene_id(p_ensembl_gene_id TEXT)
+RETURNS TEXT
+AS
+$$
+DECLARE
+  l_uniprot_id TEXT;
+  l_dbname TEXT := 'Uniprot_gn';
+BEGIN
+  SELECT 
+    primary_id INTO STRICT l_uniprot_id 
+  FROM 
+    ensembl.get_xref_table_for_ensembl_id(p_ensembl_gene_id)
+  WHERE 
+    dbname = l_dbname;
+  RETURN l_uniprot_id;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_uniprot_id_for_ensembl_gene_id(TEXT) IS
+$qq$ 
+Purpose: Return the Uniprot ID for a given Ensembl gene ID.
+Example:SELECT * FROM ensembl.get_uniprot_id_for_ensembl_gene_id('ENSG00000004468');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_fasta_for_gene_from_uniprot(p_uniprot_id TEXT)
+RETURNS TEXT
+AS
+$$
+	import requests
+    
+	url = 'http://www.uniprot.org/uniprot/%s.fasta' % p_uniprot_id
+	response = requests.get(url, headers={ "Content-Type" : "application/text"})
+	if not response.ok:
+		response.raise_for_status()
+ 	return response.text
+$$
+LANGUAGE 'plpythonu'
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_fasta_for_gene_from_uniprot(TEXT) IS
+$qq$
+Purpose: Use the UniProt REST API to return the amino acid sequence for the given UniProt ID in FASTA format. 
+Example: SELECT * FROM ensembl.get_fasta_for_gene_from_uniprot('P28907');
+$qq$
+
+CREATE OR REPLACE FUNCTION ensembl.get_uniprot_fastas_for_species_gene(p_species_names TEXT[], p_gene_name TEXT)
+RETURNS TEXT
+AS
+$$
+DECLARE
+  l_species_name TEXT;
+  l_ensembl_gene_id TEXT;
+  l_uniprot_id TEXT;
+  l_uniprot_fasta TEXT;
+  l_uniprot_fastas TEXT := '';
+BEGIN
+  FOREACH l_species_name IN ARRAY p_species_names
+  LOOP
+    l_ensembl_gene_id := ensembl.get_gene_id_for_species_name(l_species_name, p_gene_name);
+    l_uniprot_id := ensembl.get_uniprot_id_for_ensembl_gene_id(l_ensembl_gene_id);
+    l_uniprot_fasta := ensembl.get_fasta_for_gene_from_uniprot(l_uniprot_id);
+    l_uniprot_fastas := l_uniprot_fastas || l_uniprot_fasta;
+  END LOOP;
+  RETURN TRIM(l_uniprot_fastas);
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_uniprot_fastas_for_species_gene(TEXT[], TEXT) IS
+$qq$
+Purpose: Given an array of species names and a gene name, return the amino acid sequences for each gene in FAST format.
+Notes: This function gets its FASTA sequences from the UniProt REST API and not the Ensembl one.
+Example: SELECT ensembl.get_uniprot_fastas_for_species_gene(ARRAY['homo_sapiens', 'macaca_mulatta'], 'CD38');
+$qq$
+
 -- There are a lot of functions here, this view is handy for viewing them.
 CREATE OR REPLACE VIEW ensembl.vw_custom_functions AS
 SELECT 
@@ -274,18 +455,3 @@ ORDER BY
   n.nspname;
 COMMENT ON VIEW ensembl.vw_custom_functions IS 'Lists all custom functions in the schema "ensembl". Taken from http://www.postgresonline.com/journal/archives/215-Querying-table,-view,-column-and-function-descriptions.html.';
 
--- Pulling out sequences to test clustalw call from biopython schema
--- Using the Ensembl API to get sequence for a gene in human and its ortholog in Macaque.
--- Here is the view definition with the two species:
-CREATE OR REPLACE VIEW ensembl.vw_cd38_aa_seq_human_macaque AS
-SELECT
-  aa_seq,
-  'homo_sapiens' species
-FROM
-  (SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSG00000004468') aa_seq) sq_human
-UNION 
-SELECT
-  aa_seq,
-  'macaca_mulatta' species
-FROM
-  (SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSMMUG00000015298')  aa_seq) sq_macaque; -- CD38_macaca_mulatta
