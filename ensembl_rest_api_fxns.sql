@@ -418,6 +418,7 @@ $$
 DECLARE
   l_species_name TEXT;
   l_ensembl_gene_id TEXT;
+  l_uniprot_ids TEXT[];
   l_uniprot_id TEXT;
   l_uniprot_fasta TEXT;
   l_uniprot_fastas TEXT := '';
@@ -425,9 +426,12 @@ BEGIN
   FOREACH l_species_name IN ARRAY p_species_names
   LOOP
     l_ensembl_gene_id := ensembl.get_gene_id_for_species_name(l_species_name, p_gene_name);
-    l_uniprot_id := ensembl.get_uniprot_id_for_ensembl_gene_id(l_ensembl_gene_id);
-    l_uniprot_fasta := ensembl.get_fasta_for_gene_from_uniprot(l_uniprot_id);
-    l_uniprot_fastas := l_uniprot_fastas || l_uniprot_fasta;
+    l_uniprot_ids := ensembl.get_uniprot_id_array_for_ensembl_gene_id(l_ensembl_gene_id);
+    FOREACH l_uniprot_id IN ARRAY l_uniprot_ids
+    LOOP
+      l_uniprot_fasta := ensembl.get_fasta_for_gene_from_uniprot(l_uniprot_id);
+      l_uniprot_fastas := l_uniprot_fastas || l_uniprot_fasta;
+    END LOOP;
   END LOOP;
   RETURN TRIM(l_uniprot_fastas);
 END;
@@ -437,9 +441,9 @@ STABLE
 SECURITY DEFINER;
 COMMENT ON FUNCTION ensembl.get_uniprot_fastas_for_species_gene(TEXT[], TEXT) IS
 $qq$
-Purpose: Given an array of species names and a gene name, return the amino acid sequences for each gene in FAST format.
+Purpose: Given an array of species names and a gene name, return the amino acid sequences for each gene in FASTA format.
 Notes: This function gets its FASTA sequences from the UniProt REST API and not the Ensembl one.
-Example: SELECT ensembl.get_uniprot_fastas_for_species_gene(ARRAY['homo_sapiens', 'macaca_mulatta'], 'CD38');
+Example: SELECT ensembl.get_uniprot_fastas_for_species_gene(ARRAY['homo_sapiens', 'mus_musculus'], 'CD38');
 $qq$
 
 -- There are a lot of functions here, this view is handy for viewing them.
