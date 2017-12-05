@@ -457,3 +457,33 @@ ORDER BY
   n.nspname;
 COMMENT ON VIEW ensembl.vw_custom_functions IS 'Lists all custom functions in the schema "ensembl". Taken from http://www.postgresonline.com/journal/archives/215-Querying-table,-view,-column-and-function-descriptions.html.';
 
+CREATE OR REPLACE FUNCTION ensembl.get_uniprot_id_array_for_ensembl_gene_id(p_ensembl_gene_id TEXT)
+RETURNS TEXT[]
+AS
+$$
+DECLARE
+  l_uniprot_ids TEXT[];
+  l_dbname TEXT := 'Uniprot_gn';
+BEGIN
+  SELECT 
+    ARRAY_AGG(primary_id) INTO l_uniprot_ids
+  FROM 
+    ensembl.get_xref_table_for_ensembl_id(p_ensembl_gene_id)
+  WHERE 
+    dbname = l_dbname;
+  RETURN l_uniprot_ids;
+END;
+$$
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER;
+COMMENT ON FUNCTION ensembl.get_uniprot_id_array_for_ensembl_gene_id(TEXT) IS
+$qq$
+Purpose: Return an array of UniProt IDs for the given Ensembl gene ID.
+Notes: Function ensembl.get_uniprot_id_array_for_ensembl_gene_id(TEXT) throws an error
+if the given Ensembl gene ID is associated with more than one UniProt ID. This function
+deals with this situation by returning an array of UniProt IDs. It returns NULL if there are
+no matching UniProt IDs.
+Example: SELECT * FROM ensembl.get_uniprot_id_array_for_ensembl_gene_id('ENSG00000268895');
+SELECT * FROM ensembl.get_uniprot_id_array_for_ensembl_gene_id('ENSG00000268895');
+$qq$
