@@ -385,6 +385,8 @@ SECURITY DEFINER;
 COMMENT ON FUNCTION ensembl.get_uniprot_id_for_ensembl_gene_id(TEXT) IS
 $qq$ 
 Purpose: Return the Uniprot ID for a given Ensembl gene ID.
+Notes: This function throws an error if there is more than one UniProt ID associated with the Ensembl gene ID.
+For example, for the mouse verion of CD38, its Ensembl ID 'ENSMUSG00000029084' throws "ERROR:  query returned more than one row". 
 Example:SELECT * FROM ensembl.get_uniprot_id_for_ensembl_gene_id('ENSG00000004468');
 $qq$
 
