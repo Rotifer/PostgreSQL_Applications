@@ -70,14 +70,16 @@ BEGIN
   RETURN p_text::JSONB;
 EXCEPTION
   WHEN invalid_text_representation THEN
-    p_text := REPLACE(p_text, '"', '*');                                    
+    p_text := REPLACE(p_text, '"', '*');
+    p_text := REPLACE(p_text, E'\n', ' ');
     RETURN (FORMAT('{"%s":"%s"}', p_dummy_key_name, p_text))::JSONB;                                         
 END;
 $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-SELECT get_text_as_jsonb('not "json"'::TEXT, 'COMMENT');                                          
+SELECT get_text_as_jsonb('not "json"'::TEXT, 'COMMENT');
+
 CREATE OR REPLACE FUNCTION get_function_details_for_schema(p_schema_name TEXT)
 RETURNS TABLE(function_name TEXT, function_comment JSONB)
 AS
