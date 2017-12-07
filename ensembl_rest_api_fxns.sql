@@ -256,7 +256,7 @@ COMMENT ON FUNCTION ensembl.get_vep_for_variation_id(TEXT, TEXT) IS
 $qq$
 Purpose: Return the Variant Effect Predictor JSON for a given species name and variation ID.
 Notes: The returned JSON is an array that contains some complex nested objects.
-Exampl: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
+Example: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
 $qq$
 
 
