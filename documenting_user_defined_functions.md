@@ -1,3 +1,30 @@
+# Documenting PL/pgSQL Code
+
+## Michael Maguire - 2017-12-11
+
+## The *COMMENT ON* command
+Like Oracle, PostgreSQL supports the non-SQL standard *COMMENT ON* command to add custom documentation to pretty much any database object that the user can create. Such objects can be tables, views, views or tables columns, triggers, user-defined functions and so on. It is worth taking some time to read the official documentation on comments [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
+
+## Why I use database object comments to document my PosgreSQL database
+I once took on responsibility for an Oracle database where its original developer documented every table and view and each of their columns in great detail. At first I thought he was over-pedantic but after he showed me how to extract the comments from the data dictionary, I saw at once their usefullness: They made the database self-describing. That experience converted me and since PostgreSQL supports them using virtually identical syntax to Oracle, I was keen to carry this knowledge with me to my PostgreSQL work.
+Database comments, like programming documentation generally, are only useful if they are:
+- Clear
+- Comprehensive
+- Up-to-date
+
+If the object definitions change but the comments are not updated, then they are downright misleading and worse than useless. Useful as database comments are, they are **not** a replacement for general application documention, version control or testing. They are just one component of good database development practice. I think of them like Python method and function [docstrings](https://en.wikipedia.org/wiki/Docstring). Like docstrings, they "live" with the objects that they describe so they can be queried at anytime. When I use a Python package, I often check the function and method docstrings. If these dostrings are either absent or poorly written, I tend to become suspicious of the package. Likewise with databases, if the developer hasn't bothered to fill in the object comments, then I feel justified in doubting the overall quality of the database.
+
+
+## Commenting user-defined functions
+Schemas, tables, views, constraints and triggers are the backbone of any PostgreSQL database so I always try to ensure that I have documented them correctly using comments. I treat comments on tablees and views and their columns as [metadata](https://en.wikipedia.org/wiki/Metadata), that is, data about about data. Metadata is very important so I try my best to make these comments adhere as closely as possible to the good comments criteria I have outlined above. However, it is not these objects that I wish to discuss here but rather user-defined functions (UDFs). If you create a UDF using the pgAdmin client, it provides a text input called unsurprising *Comment* where you can enter a textual description of the UDF. If you use the *psql* command line client, then, after creating the function, you can execute the *COMMENT ON <function_name(<argument types>);* statement to add the textual description. PL/pgSQL supports [function overloading](http://www.postgresqltutorial.com/plpgsql-function-overloading/). This is very useful but it means that you can have multiple instances of the same function name, qualified with the same schema name, provided that the they are distinguished by the number and/or types of their parameters. When it comes to commenting the different function overloads, you need to ensure that you are commenting the correct version. For example, the following two statements each add a comment to a different functions
+ 1. *COMMENT ON a_func(TEXT, TEXT) IS 'A pointless function';*
+ 2. *COMMENT ON a_func(TEXT, TEXT, TEXT) IS 'A pointless function'*
+ The name *a_func* is over-loaded with two different functions that are distinguished by the number of parameters they take.
+Coming from Oracle PL/SQL to PL/pgSQL, I was at first caught out by this behaviour because in PL/SQL, functions can only be overloaded if they are defined in packages. PL/pgSQL, however, does not support packages although they can be mimicked to some extent by using schemas. 
+  
+## Using PL/pgSQL to comment UDFs
+After trying to standardise my commenting for UDFs for some time with only limited success, I decided to try a different approach. What I was aiming for was an approach that I could use to add comments in a standardised format to UDFs with some default information filled in that was also easily parsed. What I came up with and what I want to describe here is a PL/pgSQL function that uses its arguments to build a *COMMENT ON* command that it then executes. The comments themselves can only be stored as text by PostgreSQL but this function ensures that this text can be parsed as JSONB where the comment constituent sections are stored using defined keys. I will explain the function in detail later but first, here is its definition:
+
 ```plpgsql
 CREATE OR REPLACE FUNCTION create_function_comment_statement(p_function_name TEXT, p_arg_types TEXT[], p_purpose TEXT, p_example TEXT, p_notes TEXT DEFAULT '')
 RETURNS TEXT
@@ -5,11 +32,12 @@ AS
 $$
 DECLARE
   l_comment_date DATE := CURRENT_DATE;
-  l_comment TEXT := '{"Purpose": "%s", "Example": "%s", "Comment_Date": "%s", "Notes": "%s"}';
+  l_commenter_username TEXT := CURRENT_USER;
+  l_comment TEXT := '{"Purpose": "%s", "Example": "%s", "Comment_Date": "%s", "Commenter_Username": "%s", "Notes": "%s"}';
   l_comment_statement TEXT := 'COMMENT ON FUNCTION %s(%s) IS $qq$%s$qq$';
   l_comment_as_jsonb JSONB;
 BEGIN
-  l_comment := FORMAT(l_comment, p_purpose, p_example, l_comment_date::TEXT, p_notes);
+  l_comment := FORMAT(l_comment, p_purpose, p_example, l_comment_date::TEXT, l_commenter_username, p_notes);
   l_comment_statement := FORMAT(l_comment_statement, p_function_name, ARRAY_TO_STRING(p_arg_types, ','), l_comment);
   l_comment_as_jsonb := l_comment::JSONB;
   EXECUTE l_comment_statement;
@@ -19,7 +47,10 @@ $$
 LANGUAGE plpgsql
 VOLATILE
 SECURITY INVOKER;
+```
 
+
+```plpgsql
 SELECT create_function_comment_statement('create_function_comment_statement', 
                                          ARRAY['TEXT', 'TEXT[]', 'TEXT', 'TEXT', 'TEXT'], 
                                          'Adds structured comments to user-defined functions so that the comments, although stored as text, can be returned as JSONB to make them easier to parse.', 
@@ -30,6 +61,8 @@ SELECT create_function_comment_statement('create_function_comment_statement',
                                          'To allow for single quotes in the example SQL, double dollar ($$) quoting is used to enclose the example SQL statement.'
                                          'Remember to include the schema name as art of the function name if it is not the default <public>. As PL/pgSQL allows function over-loading,' ||
                                          ' you need to ensure that the array of argument types exactly matches the function you wish to comment.');
+
+
 
 CREATE OR REPLACE FUNCTION get_details_for_function(p_schema_name TEXT, p_function_name TEXT)
 RETURNS  TABLE(function_name TEXT, function_parameters TEXT, function_oid OID, function_comment JSONB)
