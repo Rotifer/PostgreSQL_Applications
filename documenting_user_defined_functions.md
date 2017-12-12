@@ -3,7 +3,7 @@
 ## Michael Maguire - 2017-12-11
 
 ## The *COMMENT ON* command
-Like Oracle, PostgreSQL supports the non-SQL standard *COMMENT ON* command to add custom documentation to pretty much any database object that the user can create. Such objects can be tables, views, views or tables columns, triggers, user-defined functions and so on. It is worth taking some time to read the official documentation on comments [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
+Like Oracle, PostgreSQL supports the non-SQL standard *COMMENT ON* command to add custom documentation to pretty much any database object that the user can create. Such objects can be tables, views, views or tables columns, triggers, user-defined functions and so on. If you're not familiar with this feature, it is worth taking some time to read the official documentation on them [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
 
 ## Why I use database object comments to document my PosgreSQL database
 I once took on responsibility for an Oracle database where its original developer documented every table and view and each of their columns in great detail. At first I thought he was over-pedantic but after he showed me how to extract the comments from the data dictionary, I saw at once their usefullness: They made the database self-describing. That experience converted me and since PostgreSQL supports them using virtually identical syntax to Oracle, I was keen to carry this knowledge with me to my PostgreSQL work.
@@ -12,7 +12,7 @@ Database comments, like programming documentation generally, are only useful if 
 - Comprehensive
 - Up-to-date
 
-If the object definitions change but the comments are not updated, then they are downright misleading and worse than useless. Useful as database comments are, they are **not** a replacement for general application documention, version control or testing. They are just one component of good database development practice. I think of them like Python method and function [docstrings](https://en.wikipedia.org/wiki/Docstring). Like docstrings, they "live" with the objects that they describe so they can be queried at anytime. When I use a Python package, I often check the function and method docstrings. If these dostrings are either absent or poorly written, I tend to become suspicious of the package. Likewise with databases, if the developer hasn't bothered to fill in the object comments, then I feel justified in doubting the overall quality of the database.
+If the object definitions change but the comments are not updated, then they are downright misleading and worse than useless. Useful as database comments are, they are **not** a replacement for general application documention, version control or testing. They are just one component of good database development practice. I think of them like Python method and function [docstrings](https://en.wikipedia.org/wiki/Docstring). Like docstrings, they "live" with the objects that they describe so they can be queried at anytime. When familiarising myself with a new Python package, I like check the function and method docstrings. If these dostrings are either absent or poorly written, I tend to become suspicious of the package. Likewise with databases, if the developer hasn't bothered to fill in the object comments, then I feel justified in doubting the overall quality of the database.
 
 
 ## Commenting user-defined functions
@@ -53,8 +53,8 @@ SECURITY INVOKER;
 ```plpgsql
 SELECT create_function_comment_statement('create_function_comment_statement', 
                                          ARRAY['TEXT', 'TEXT[]', 'TEXT', 'TEXT', 'TEXT'], 
-                                         'Adds structured comments to user-defined functions so that the comments, although stored as text, can be returned as JSONB to make them easier to parse.', 
-                                         $$SELECT * FROM my_function('some_text', ARRAY['element', 'another']$$, 
+                                         'Adds structured comments to user-defined functions so that the comments, although stored as text, can be returned as JSONB.', 
+                                         $$SELECT * FROM create_function_comment_statement('get_table_count_for_schema', ARRAY['TEXT'])$$, 
                                          'This function executes dynamic SQL so it is set as *SECURITY INVOKER* and it should only be executed by users who can create functions.' ||
                                          'It checks that the comment text can be converted to JSONB and an error will arise if the it cannot be converted to JSONB' || 
                                          ' (line: *l_comment_as_jsonb := l_comment::JSONB;)*. Double quotes have special meaning in JSON so are disallowed in the input string arguments.' ||
