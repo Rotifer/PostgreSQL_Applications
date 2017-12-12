@@ -79,7 +79,18 @@ SELECT create_function_comment_statement('create_function_comment_statement',
     3. Sentence describing the purpose of the function
     4. An example of how the target function is called. This is enclosed in double dollar quotes ($$) to enclose the single quotes needed for text value arguments for the target function
     5. An optional descriptive note that if omitted, uses the empty string default.
-* 
+* The *l_comment* variable is a template with curly braces and key names with place holders (%s) that make it JSON-conertible. The place-holders arefor passed in arguments passed and automatically assigned values for the date stamp and user.
+* There is a second template defined by the variable *l_comment_statement* containing three place-holders:
+    1. Function name
+    2. Function arguments
+    3. Comment text
+* This template uses $qq$ ... $qq$$ to enclose the comment text. It cannot use '$$' because this is already taken to define the function itself.
+* The values are FORMAT function is used to fill in the place-holders for both templates with the given target function parameter types array, *p_arg_types*, collapsed to a comma-separated string by the *ARRAY_TO_STRING* function call.
+* I want to store the comment text in a format that can be converted to JSONB so before it is applied to the function, the line *l_comment_as_jsonb := l_comment::JSONB;* checks that the generated text can be converted to JSONB. If not, an unhandled exception is thrown.
+* The full *COMMENT ON* command is now executed as dynamic SQL by calling *EXECUTE l_comment_statement;*.
+* The full *COMMENT ON* text is returned.
+
+
 
 ```plpgsql
 CREATE OR REPLACE FUNCTION get_details_for_function(p_schema_name TEXT, p_function_name TEXT)
