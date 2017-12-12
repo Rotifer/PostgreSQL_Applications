@@ -69,6 +69,7 @@ SELECT create_function_comment_statement('create_function_comment_statement',
                                          'To allow for single quotes in the example SQL, double dollar ($$) quoting is used to enclose the example SQL statement.'
                                          'Remember to include the schema name as art of the function name if it is not the default <public>. As PL/pgSQL allows function over-loading,' ||
                                          ' you need to ensure that the array of argument types exactly matches the function you wish to comment.');
+```
 
 ### Notes on function *create_function_comment_statement*
 * The function is created in the *public* schema
@@ -80,6 +81,7 @@ SELECT create_function_comment_statement('create_function_comment_statement',
     5. An optional descriptive note that if omitted, uses the empty string default.
 * 
 
+```plpgsql
 CREATE OR REPLACE FUNCTION get_details_for_function(p_schema_name TEXT, p_function_name TEXT)
 RETURNS  TABLE(function_name TEXT, function_parameters TEXT, function_oid OID, function_comment JSONB)
 AS
