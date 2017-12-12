@@ -62,7 +62,7 @@ Now let's make this function **comment itself** by executing the following SQL:
 SELECT create_function_comment_statement('create_function_comment_statement', 
                                          ARRAY['TEXT', 'TEXT[]', 'TEXT', 'TEXT', 'TEXT'], 
                                          'Adds structured comments to user-defined functions so that the comments, although stored as text, can be returned as JSONB.', 
-                                         $$SELECT * FROM create_function_comment_statement('get_table_count_for_schema', ARRAY['TEXT'])$$, 
+                                         $$SELECT 1; -- Dummy example for this function$$, 
                                          'This function executes dynamic SQL so it is set as *SECURITY INVOKER* and it should only be executed by users who can create functions.' ||
                                          'It checks that the comment text can be converted to JSONB and an error will arise if the it cannot be converted to JSONB' || 
                                          ' (line: *l_comment_as_jsonb := l_comment::JSONB;)*. Double quotes have special meaning in JSON so are disallowed in the input string arguments.' ||
@@ -90,6 +90,50 @@ SELECT create_function_comment_statement('create_function_comment_statement',
 * The full *COMMENT ON* command is now executed as dynamic SQL by calling *EXECUTE l_comment_statement;*.
 * The full *COMMENT ON* text is returned.
 
+
+## Demonstrating the commenting function
+Now that I have created the function, I am going to create a useless PL/pgSQL function to show how it can be aplied and how the added comment can be retrieved and parsed.
+
+Here is a function that returns the base table count, that is views are excluded, for the given schema:
+
+```plpgsql
+CREATE OR REPLACE FUNCTION get_table_count_for_schema(p_schema_name TEXT)
+RETURNS OID
+AS
+$$
+DECLARE
+  l_table_count INTEGER;
+BEGIN
+  SELECT INTO l_table_count
+    COUNT(table_name)
+  FROM
+    information_schema.tables
+  WHERE
+    table_schema = p_schema_name
+    AND
+      table_type = 'BASE TABLE';
+  RETURN l_table_count;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER;
+```
+I've created it in the default *public* schema. Now that it is created, I'll use my UDF commenter function to add the comment like so:
+```plpgsql
+SELECT create_function_comment_statement('get_table_count_for_schema',
+                                        ARRAY['TEXT'],
+                                        'Return the base table count for a given schema name.',
+                                        $$SELECT * FROM get_table_count_for_schema('pg_catalog');$$,
+                                        'This is a demo function only to show how the function ' ||                    'create_function_comment_statement ' ||
+                                        'can be used to add documentation comments to a function. ' ||
+                                         'Use command DROP FUNCTION get_table_count_for_schema(TEXT) to remove it.');
+
+```
+
+When I execute the SQL above, the comment is created and the full *COMMENT ON* command text is returned.
+
+*NB*: Since the commenting function tests that the comment text can be converted to JSONB, embedded double quotes are not allowed. This is due to the JSON specification and not PostgreSQL. However, embedded new lines also cause a JSONB conversion error and I am unsure why this happens because embedded new line characters are allowed in standard JSON
 
 
 ```plpgsql
