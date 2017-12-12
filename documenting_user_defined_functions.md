@@ -3,7 +3,8 @@
 ## Summary
 Over the years I have written quite a few PostgreSQL user-defined functions (UDFs) mainly in PL/pgSQL but also, as the need arises, in PL/Python. If you do likewise, you might be interested in what I have written here where I try to describe an approach to writing standardised database comments to document these functions. Instead of issuing a series of *COMMENT ON FUNCTION* statements to do this, I have written one PL/pgSQL function to create the comment text and then execute the full *COMMENT ON* statement for me in a manner that creates a comment format that can be converted to JSONB and then parsed to extract key information in a standardised and usable manner. Along the way, I demonstrate a few useful PL/pgSQL tricks to do things like build and execute dynamic SQL, parse JSONB and use PostgreSQL system catalogs and ANISI SQL standard *INFORMATION_SCHEMA* views to retrieve information about UDFs. I firmly believe that when comments are used consistently and properly, they are an indespensable mechanism for database self-documentation. 
 
-Written by: Michael Maguire - 2017-12-11  
+Written by: Michael Maguire  
+Written: 2017-12-11  
 Email: mick@javascript-spreadsheet-programming.com  
 Twitter: https://twitter.com/michaelfmaguir1  
 
