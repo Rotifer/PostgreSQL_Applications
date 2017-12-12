@@ -219,3 +219,4 @@ SELECT 'abc'::JSONB;
 ```
 ## Links
 * If you're not familiar with this feature, it is worth taking some time to read the official documentation on them [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
+* Wikipedia entry on [INFORMATION_SCHEMA](https://en.wikipedia.org/wiki/Information_schema)
