@@ -120,7 +120,7 @@ VOLATILE
 SECURITY DEFINER;
 ```
 I've created it in the default *public* schema. Now that it is created, I'll use my UDF commenter function to add the comment like so:
-```plpgsql
+```sql
 SELECT create_function_comment_statement('get_table_count_for_schema',
                                         ARRAY['TEXT'],
                                         'Return the base table count for a given schema name.',
@@ -133,8 +133,14 @@ SELECT create_function_comment_statement('get_table_count_for_schema',
 
 When I execute the SQL above, the comment is created and the full *COMMENT ON* command text is returned.
 
-*NB*: Since the commenting function tests that the comment text can be converted to JSONB, embedded double quotes are not allowed. This is due to the JSON specification and not PostgreSQL. However, embedded new lines also cause a JSONB conversion error and I am unsure why this happens because embedded new line characters are allowed in standard JSON
+### Note
+**Since the commenting function tests that the comment text can be converted to JSONB, embedded double quotes are not allowed. This is a JSON rule. However, embedded new lines also cause a JSONB conversion error and I am unsure why this happens because embedded new line characters are allowed in standard JSON**
 
+
+## Extracting the comments
+The code so far may seem like more effort than it is worth but, now that I have added the comments, I will show how they can be extracted and parsed.
+
+To demonstrate this, here is a function to extract a table of information for a function in a schema. I'll describe how it works later.
 
 ```plpgsql
 CREATE OR REPLACE FUNCTION get_details_for_function(p_schema_name TEXT, p_function_name TEXT)
@@ -160,14 +166,58 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
+```
+
+### Notes on function *get_details_for_function*
+* Created here in the public schema but it could be qualified by a schema name to create it elsewhere
+* The arguments are the schema and function name
+* The return type is *TABLE* with four columns. The fourth column is of type JSONB and contains the comment.
+* Because of function overloading:
+    1. It may return more than one row
+    2. The function OID is needed to uniquely identify the function
+* The line *d.description::JSONB function_comment* does a text to JSONB conversion of the comment text. If the text is unconvertible, an unhandled error will be raised.
+* It uses three system catalogs:
+    1. pg_proc
+    2. pg_namespace
+    3. pg_description
+
+Let's add documentation using my commenter function as shown before:
+
+```sql
 SELECT create_function_comment_statement('get_details_for_function', 
                                          ARRAY['TEXT', 'TEXT'], 
                                          'Returns a table of information for a given schema name  and function name.', 
                                          $$SELECT * FROM get_details_for_function('public', 'create_function_comment_statement');$$, 
                                          'Because PL/pgSQL supports function over-loading, this function can return more than one row' || 
                                          'for a given schema name and function name. The actual comment is returned as JSONB in the column named <function_comment>.');
-SELECT * FROM get_details_for_function('public', 'create_function_comment_statement');
 
+```
+
+To see the function in action, I have written the following SQL statement:
+
+```sql
+SELECT
+  function_name,
+  function_parameters, 
+  function_oid,
+  function_comment->>'Purpose',
+  function_comment->>'Example',
+  function_comment->>'Notes',
+  function_comment->>'Commenter_Username',
+  function_comment->>'Comment_Date'
+FROM
+  (SELECT *
+   FROM
+     get_details_for_function('public', 'get_table_count_for_schema')) func_details;
+```
+Note the call to function *get_details_for_function* in the inner query named *func_details*! The output here is a single row where the comment for the function *get_table_count_for_schema* defined earlier is parsed using the JSONB *->>* operator to extract the comment components. I could run this for the commenting function itself to see its documentation
+
+## Extracting comments for all UDFs in a schema 
+The function *get_details_for_function* can extract details for one function and its over-loaded versions. On its own, this is not so useful. Because PL/pgSQL, unlike Oracle PL/SQL, does not support packages, the recommended work-around is to use schemas instead to group related functions. I put all general purpose UDFs such as *create_function_comment_statement* into the *public* schema and then put specialised UDFs into groups in their own schemas. I would therefore like to be able to extract the documentation for all UDFs in a given schema. I would also like to be able to allow for comments that were added to UDFs in this schema before I started using the function *create_function_comment_statement*. I can still extract them as JSONB but first I need to remove double quotes and new lines and provide a key for the JSONB.
+
+Here is a function that performs these task:
+
+```plpgsql
 CREATE OR REPLACE FUNCTION get_text_as_jsonb(p_text TEXT, p_dummy_key_name TEXT)                                      
 RETURNS JSONB
 AS
@@ -184,10 +234,30 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-SELECT get_text_as_jsonb('not "json"'::TEXT, 'COMMENT');
+```
+This function takes text and an arbitrary key value as input and replaces double quotes with asterisk and embedded new lines with blanks and then returns JSONB as a key-value pair using the dummy value as the key. Note how it uses exception handling: If the input text can be converted directly to JSONB, the converted value is returned directly
 
-CREATE OR REPLACE FUNCTION get_function_details_for_schema(p_schema_name TEXT)
-RETURNS TABLE(function_name TEXT, function_comment JSONB)
+Let's add documentation using the commenter function:
+
+```sql
+SELECT create_function_comment_statement('get_text_as_jsonb', 
+                                         ARRAY['TEXT', 'TEXT'], 
+                                         'Returns input text as JSONB using the second argument as the key to the text', 
+                                         $$SELECT get_text_as_jsonb('not json'::TEXT, 'COMMENT');$$, 
+                                         'This function should be able to convert any input text into JSONB. ' ||
+                                        'It replaces double quotes with * and removes embedded new lines which ' ||
+                                        'seem to cause problems in Postgres JSONB.' ||
+                                        'Note how it uses exception handling only when the input text cannot be converted ' ||
+                                        'directly to JSONB. Comments added using *create_function_comment_statement* ' ||
+                                        'will not trigger the exception.'); 
+  
+```
+
+Now using this helper function, I can retrieve all the comments for all UDFs in a given schema
+
+```plpgsql
+CREATE OR REPLACE FUNCTION get_function_details_for_schema(p_schema_name TEXT, p_dummy_key TEXT)
+RETURNS TABLE(function_name TEXT, function_comment JSONB, p_non)
 AS
 $$                                         
 DECLARE
@@ -195,7 +265,7 @@ DECLARE
 BEGIN
   FOR r_row IN(SELECT 
                  n.nspname || '.' || p.proname function_name, 
-                 get_text_as_jsonb(d.description, 'NON_JSONB_COMMENT') function_comment
+                 get_text_as_jsonb(d.description, p_dummy_key) function_comment
                FROM
                  pg_proc p
                  INNER JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -211,12 +281,23 @@ END;
 $$                                         
 LANGUAGE plpgsql
 STABLE
-SECURITY DEFINER;
-                                         
-SELECT * FROM get_function_details_for_schema('ensembl');
-                                         
-SELECT 'abc'::JSONB; 
+SECURITY DEFINER;                                       
 ```
+
+Keeping up the good habit, let's add a comment in the desired format:
+
+```sql
+SELECT create_function_comment_statement('get_function_details_for_schema',
+                                        ARRAY['TEXT', 'TEXT'],
+                                        'Returns a table of all the functions in a given schema with their comments as JSONB.',
+                                        $$SELECT * FROM get_function_details_for_schema('public', 'NON_STANDARD_COMMENT');$$,
+                                        'If the comments are not in the format genrated by function *create_function_comment_statement*, ' ||
+                                        'they are converted to JSONB and the second argument given is used as the key. ' ||
+                                        'The returned JSONB can be parsed using standard operators such as *->>* to extract ' ||
+                                        'the constituent parts.');
+```
+
+
 ## Links
 * If you're not familiar with this feature, it is worth taking some time to read the official documentation on them [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
 * Wikipedia entry on [INFORMATION_SCHEMA](https://en.wikipedia.org/wiki/Information_schema)
