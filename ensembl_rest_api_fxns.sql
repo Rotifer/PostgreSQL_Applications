@@ -81,7 +81,11 @@ See documentation https://rest.ensembl.org/documentation/info/symbol_lookup
 Example: SELECT * FROM ensembl.get_details_for_symbol_as_json('CD38', 'mus_musculus');
 $qq$
 
-CREATE OR REPLACE FUNCTION ensembl.get_features_for_genomic_location(p_species_name TEXT, p_chromosome_name TEXT, p_feature TEXT, p_start_pos BIGINT, p_end_pos BIGINT)
+CREATE OR REPLACE FUNCTION ensembl.get_features_for_genomic_location(p_species_name TEXT, 
+								     p_chromosome_name TEXT, 
+								     p_feature TEXT, 
+								     p_start_pos BIGINT, 
+								     p_end_pos BIGINT)
 RETURNS JSONB
 AS
 $$
