@@ -300,13 +300,36 @@ SELECT create_function_comment_statement('get_function_details_for_schema',
                                         'The function OID is a unique identifier that is especially useful for identifying overloaded functions.' ||
                                         'It can be used as an argument to system catalog information functions such as *pg_get_functiondef(func_oid)*.');
 ```
-As I mentioned earlier, PostgreSQL schemas provide a convenient mechanism for grouping objects by their functionality; they are a name space of a sort. I typically have multiple schemas that contain only UDFs so to make them more manageable, I create a view in each schema that I call *vw_udf_documentation* that uses the above function to extract the function comments. Here is the view definition for the *public* schema:
+As I mentioned earlier, PostgreSQL schemas provide a convenient mechanism for grouping objects by their functionality; they are in effect namespaces. I typically have multiple schemas that contain only UDFs so to make them more manageable, I create a view in each schema that I call *vw_udf_documentation* that uses the above function to extract the function comments. Here is the view definition for the *public* schema:
 
 ```
-
+CREATE OR REPLACE VIEW public.vw_udf_documentation AS                                        
+SELECT
+  function_oid,
+  function_name,
+  function_comment,
+  function_comment->>'Purpose' purpose,
+  function_comment->>'Example' example_call,
+  function_comment->>'Notes' notes,
+  function_comment->>'Commenter_Username' comment_added_by,
+  function_comment->>'Comment_Date' comment_date
+FROM 
+  get_function_details_for_schema('public', 'NON_STANDARD_COMMENT');                                        
+COMMENT ON VIEW public.vw_udf_documentation IS 'Uses the UDF get_function_details_for_schema to extract documentation from UDF comments in the schema public.';                                       
 ```
+
+Having this view in each schema:
+* Allows me to see all the UDFs defined in that schema
+* Provides me with the OID values for each function (to be used as arguments to built-in PostgreSQL functions)
+* Highlights functions that have non-standard or NULL comments - it does handle NULL comments
+* Helps other users quickly navigate the database
+
+## Conclusions
+I now use this approach to document my UDFs and have migrated all my old comments into this format. Readers may have their own requirements and conventions but I think the code examples I have given here could help. Documenting code may not be the most exciting task in the world but trying to debug and understand undocumented or poorly documented code is even less fun so it is definitely worth the effort to do it properly. I hope that the and tools and approach that I have described here help at least some readers in their efforts.
 
 ## Links
 * If you're not familiar with this feature, it is worth taking some time to read the official documentation on them [here](https://www.postgresql.org/docs/10/static/sql-comment.html).
 * Wikipedia entry on [INFORMATION_SCHEMA](https://en.wikipedia.org/wiki/Information_schema).
 * The System Catalog Information Functions given in the [documentation](https://www.postgresql.org/docs/9.6/static/functions-info.html) are well worth perusing; There are some very useful ones for extracting information about functions generally, for example, the return type, the definitions, the paramaters and so forth.
+* Some good general advice in [Make Your Relational Database Self-Documenting](https://glennstreet.net/2013/08/24/make-your-relational-database-self-documenting-2/).
+* Description of SQL Server extended properties (comments) [Towards the Self-Documenting SQL Server Database](https://www.red-gate.com/simple-talk/sql/sql-tools/towards-the-self-documenting-sql-server-database/)
