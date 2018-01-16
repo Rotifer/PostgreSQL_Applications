@@ -1,9 +1,5 @@
-CREATE SCHEMA ensembl;
-CREATE ROLE genomics_reader LOGIN PASSWORD 'readonly';
-GRANT CONNECT ON DATABASE genomics_apis TO genomics_reader;
-GRANT USAGE ON SCHEMA ensembl TO genomics_reader;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ensembl  TO genomics_reader;
-
+-- Create UDFs that query the Ensemble REST API.
+-- Relies on user_defined_function_documentor.sql
 CREATE OR REPLACE FUNCTION ensembl.get_ensembl_json(p_ext TEXT)
 RETURNS JSONB 
 AS
@@ -20,14 +16,6 @@ $$
 LANGUAGE 'plpythonu'
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_ensembl_json(TEXT) IS
-$qq$
-Purpose: Centralizes all calls to the Ensembl REST API, see: https://rest.ensembl.org/documentation. Individual PL/pgSQL functions use this
-FUNCTION ensembl.to get specific JSONB return values. The second part of the URL, "p_ext" is expected to be fully formed with parameters inserted by the calling code.
-Notes: Requires the "requests" module to be installed.
-Example: SELECT * FROM ensembl.get_ensembl_json('/lookup/id/ENSG00000157764?expand=1');
-$qq$;
-
 
 CREATE OR REPLACE FUNCTION ensembl.get_details_for_id_as_json(p_identifier TEXT)
 RETURNS JSONB
@@ -48,14 +36,7 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_details_for_id_as_json(TEXT) IS
-$qq$
-Purpose: Find the species and database for a single identifier e.g. gene, transcript, protein using the Ensembl REST API.
-Notes: Only accepts Ensembl identifiers and throws an error if the given identifier does not begin with "ENS".
-Calls a stored Python FUNCTION ensembl.that does the actual REST API call. 
-See Ensembl REST API documentation: https://rest.ensembl.org/documentation/info/lookup
-Example: SELECT * FROM ensembl.get_details_for_id_as_json('ENSG00000157764');
-$qq$;
+
 
 CREATE OR REPLACE FUNCTION ensembl.get_details_for_symbol_as_json(p_symbol TEXT, p_species_name TEXT)
 RETURNS JSONB
@@ -73,13 +54,7 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_details_for_symbol_as_json(TEXT, TEXT) IS
-$qq$
-Purpose: Get details as JSONB from the Ensembl REST API for a given symbol, a gene name for example, and species name.
-Notes: Takes the Latin name for "species",, "mus_musculus" or "homo_sapiens".
-See documentation https://rest.ensembl.org/documentation/info/symbol_lookup
-Example: SELECT * FROM ensembl.get_details_for_symbol_as_json('CD38', 'mus_musculus');
-$qq$
+
 
 CREATE OR REPLACE FUNCTION ensembl.get_features_for_genomic_location(p_species_name TEXT, 
 								     p_chromosome_name TEXT, 
@@ -109,15 +84,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_features_for_genomic_location(TEXT, TEXT, TEXT, BIGINT, BIGINT) IS
-$qq$
-Purpose: Return all values for species, chromosome, feature and start stop position. 
-Notes: The allowable feature names are checked and if the given feature name is not recognised, an exception is thrown.
-The recognised ENUMs are represented as an array and the values were taken from this link: https://rest.ensembl.org/documentation/info/overlap_region
-The returned JSON is an array of JSON objects and it can be very large.
-Example: SELECT * FROM ensembl.get_features_for_genomic_location('homo_sapiens', 'X', 'variation', 136648193, 136660390);
-This one will raise the exception: SELECT * FROM ensembl.get_features_for_genomic_location('homo_sapiens', 'X', 'variant', 136648193, 136660390);
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_variant_table_for_gene_symbol(p_gene_symbol TEXT, p_species_name TEXT) 
 RETURNS TABLE(ensembl_gene_id TEXT, gene_symbol TEXT, variant_id TEXT, consequence_type TEXT, variation_details JSONB)
@@ -152,15 +118,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_variant_table_for_gene_symbol(TEXT, TEXT) IS
-$qq$
-Purpose: Return a table of all the variants (excludes structural variants) for a given gene symbol and species.
-Notes: It uses the gene symbol to extract the gene object JSON from which it gets the chromosome and gene start and stop coordinates.
-It then calls the FUNCTION "ensembl.get_features_for_genomic_location" passing in the required gene location arguments, extracts some values
-from the JSON and returns a table.
-An exception is raised if the gene symbol is not recognised.
-Example: SELECT * FROM ensembl.get_variant_table_for_gene_symbol('CD38', 'homo_sapiens');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_variation_info_as_json(p_variation_id TEXT, p_species_name TEXT)
 RETURNS JSONB
@@ -178,11 +135,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_variation_info_as_json(TEXT, TEXT) IS
-$qq$
-Purpose: Return details for a given variation name and species name.
-Example: SELECT * FROM ensembl.get_variation_info_as_json('rs7412', 'homo_sapiens');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_protein_ids_table_for_gene_ids(p_ensembl_gene_id TEXT)
 RETURNS TABLE(ensembl_protein_id TEXT, is_canonical TEXT, translation_length INTEGER)
@@ -205,12 +157,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_protein_ids_table_for_gene_ids(TEXT) IS
-$qq$
-Purpose: Given an Ensembl gene ID, return a table listing all the Ensembl protein IDs for it giving the translation length
-and a flag to inform if it is the canonical sequence for that gene.
-Example: SELECT * FROM ensembl.get_protein_ids_table_for_gene_ids('ENSG00000004468');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_protein_sequence_as_text_for_gene_id(p_ensembl_gene_id TEXT)
 RETURNS TEXT
@@ -234,11 +180,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_protein_sequence_as_text_for_gene_id(TEXT) IS
-$qq$
-Purpose: Return the canonical protein sequence for a given Ensembl gene ID.
-Example: SELECT ensembl.get_protein_sequence_as_text_for_gene_id('ENSG00000130203');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_vep_for_variation_id(p_variation_id TEXT, p_species_name TEXT)
 RETURNS JSONB
@@ -256,13 +197,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_vep_for_variation_id(TEXT, TEXT) IS
-$qq$
-Purpose: Return the Variant Effect Predictor JSON for a given species name and variation ID.
-Notes: The returned JSON is an array that contains some complex nested objects.
-Example: SELECT * FROM ensembl.get_vep_for_variation_id('rs7412', 'homo_sapiens');
-$qq$
-
 
 CREATE OR REPLACE FUNCTION ensembl.get_gene_id_for_species_name(p_species_name TEXT, p_gene_name TEXT)
 RETURNS TEXT
@@ -280,11 +214,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_gene_id_for_species_name(TEXT, TEXT) IS
-$qq$
-Purpose: Return the Ensembl gene ID for a given gene name and species name.
-Example: SELECT ensembl.get_gene_id_for_species_name('homo_sapiens', 'CD38');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_fastas_for_species_gene(p_species_names TEXT[], p_gene_name TEXT)
 RETURNS TEXT
@@ -309,11 +238,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_fastas_for_species_gene(TEXT[], TEXT) IS
-$qq$
-Purpose: Given an array of species names and a gene name, return the amino acid sequences for the for each given species names.
-Example: SELECT ensembl.get_fastas_for_species_gene(ARRAY['homo_sapiens', 'mus_musculus'], 'CD38');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_xref_info_for_ensembl_id(p_ensembl_id TEXT)
 RETURNS JSONB
@@ -331,13 +255,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_xref_info_for_ensembl_id(TEXT) IS
-$qq$
-Purpose: Return JSON containing details of all cross-references for the given Enseml ID. 
-Notes: This can be any sort of ID (gene, protein transcript) for any species in Ensembl. 
-It is assumed to begin with "ENS".
-Example: SELECT * FROM ensembl.get_xref_info_for_ensembl_id('ENSG00000004468');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_xref_table_for_ensembl_id(p_ensembl_id TEXT)
 RETURNS TABLE(primary_id TEXT, dbname TEXT)
@@ -358,13 +275,6 @@ END;
 $$
 LANGUAGE plpgsql
 STABLE SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_xref_table_for_ensembl_id(TEXT) IS
-$qq$
-Purpose: Return a table of desired values extracted from JSON with full cross-reference information for the given Ensembl ID.
-Notes: The Ensembl ID can be any type of valid ID, gene protein, etc.
-It is assumed to begin with "ENS".
-Example: SELECT * FROM ensembl.get_xref_table_for_ensembl_id('ENSG00000004468');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_uniprot_id_for_ensembl_gene_id(p_ensembl_gene_id TEXT)
 RETURNS TEXT
@@ -386,13 +296,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_uniprot_id_for_ensembl_gene_id(TEXT) IS
-$qq$ 
-Purpose: Return the Uniprot ID for a given Ensembl gene ID.
-Notes: This function throws an error if there is more than one UniProt ID associated with the Ensembl gene ID.
-For example, for the mouse verion of CD38, its Ensembl ID 'ENSMUSG00000029084' throws "ERROR:  query returned more than one row". 
-Example:SELECT * FROM ensembl.get_uniprot_id_for_ensembl_gene_id('ENSG00000004468');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_fasta_for_gene_from_uniprot(p_uniprot_id TEXT)
 RETURNS TEXT
@@ -409,11 +312,6 @@ $$
 LANGUAGE 'plpythonu'
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_fasta_for_gene_from_uniprot(TEXT) IS
-$qq$
-Purpose: Use the UniProt REST API to return the amino acid sequence for the given UniProt ID in FASTA format. 
-Example: SELECT * FROM ensembl.get_fasta_for_gene_from_uniprot('P28907');
-$qq$
 
 CREATE OR REPLACE FUNCTION ensembl.get_uniprot_fastas_for_species_gene(p_species_names TEXT[], p_gene_name TEXT)
 RETURNS TEXT
@@ -443,12 +341,6 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_uniprot_fastas_for_species_gene(TEXT[], TEXT) IS
-$qq$
-Purpose: Given an array of species names and a gene name, return the amino acid sequences for each gene in FASTA format.
-Notes: This function gets its FASTA sequences from the UniProt REST API and not the Ensembl one.
-Example: SELECT ensembl.get_uniprot_fastas_for_species_gene(ARRAY['homo_sapiens', 'mus_musculus'], 'CD38');
-$qq$
 
 -- There are a lot of functions here, this view is handy for viewing them.
 CREATE OR REPLACE VIEW ensembl.vw_custom_functions AS
@@ -485,20 +377,8 @@ $$
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
-COMMENT ON FUNCTION ensembl.get_uniprot_id_array_for_ensembl_gene_id(TEXT) IS
-$qq$
-Purpose: Return an array of UniProt IDs for the given Ensembl gene ID.
-Notes: Function ensembl.get_uniprot_id_array_for_ensembl_gene_id(TEXT) throws an error
-if the given Ensembl gene ID is associated with more than one UniProt ID. This function
-deals with this situation by returning an array of UniProt IDs. It returns NULL if there are
-no matching UniProt IDs.
-Example: SELECT * FROM ensembl.get_uniprot_id_array_for_ensembl_gene_id('ENSG00000268895');
-SELECT * FROM ensembl.get_uniprot_id_array_for_ensembl_gene_id('ENSG00000268895');
-$qq$
-/*
-New commenting using PL/pgSQL function
-*/
 
+-- Create a view to display comments in parsed table
 CREATE OR REPLACE VIEW ensembl.vw_udf_documentation AS                                        
 SELECT
   function_oid,
@@ -511,7 +391,9 @@ SELECT
   function_comment->>'Comment_Date' comment_date
 FROM 
   get_function_details_for_schema('ensembl', 'NON_STANDARD_COMMENT');                                        
-COMMENT ON VIEW public.vw_udf_documentation IS 'Uses the UDF get_function_details_for_schema to extract documentation from UDF comments in the schema *ensembl*.';
+COMMENT ON VIEW ensembl.vw_udf_documentation IS 'Uses the UDF get_function_details_for_schema to extract documentation from UDF comments in the schema *ensembl*.';
+
+-- Add documentation comments to all UDFs in this schema
 
 SELECT create_function_comment_statement(
   'ensembl.get_features_for_genomic_location',
@@ -610,7 +492,7 @@ SELECT create_function_comment_statement(
   'Return protein sequences in FASTA format for a given an array of species names and a gene name', 
   $$SELECT ensembl.get_fastas_for_species_gene(ARRAY['homo_sapiens', 'macaca_mulatta'], 'CD38');$$,
   'Used to get gene orthologs for a set of species for a particular gene. ' ||
-  'The output can be used by various bioinformatics tools to do sequence comparisons.')
+  'The output can be used by various bioinformatics tools to do sequence comparisons.');
 
 SELECT create_function_comment_statement(   
   'ensembl.get_xref_info_for_ensembl_id',
@@ -663,5 +545,4 @@ SELECT create_function_comment_statement(
   'The returned JSONB is an array that contains some complex nested objects. ' ||
   'This function call is often very slow so should be used with cautions and avoided if possible ' ||
   'because it is subject to timeout errors from the REST server.');
-  
   
