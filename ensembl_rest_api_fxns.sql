@@ -1,5 +1,6 @@
--- Create UDFs that query the Ensemble REST API.
--- Relies on user_defined_function_documentor.sql
+-- Contains functions that use the Ensembl REST API (https://rest.ensembl.org/).
+-- Relies on the plpythonu extension and the Python "requests" module to do the REST API calls.
+
 CREATE OR REPLACE FUNCTION ensembl.get_ensembl_json(p_ext TEXT)
 RETURNS JSONB 
 AS
