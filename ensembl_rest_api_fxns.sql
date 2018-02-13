@@ -379,6 +379,37 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER;
 
+CREATE OR REPLACE FUNCTION ensembl.get_details_for_id_array_as_json(p_ids TEXT[])
+RETURNS JSONB[]
+AS
+$$
+DECLARE
+  l_id TEXT;
+  l_id_details JSONB;
+  l_details_all_ids JSONB[] := ARRAY_FILL('{}'::JSONB, ARRAY[ARRAY_LENGTH(p_ids, 1)]);
+  l_loop_counter INTEGER := 1;
+  l_err_entry JSONB;
+BEGIN
+  FOREACH l_id IN ARRAY p_ids
+  LOOP
+    BEGIN
+      l_id_details := ensembl.get_details_for_id_as_json(l_id);
+	  l_details_all_ids[l_loop_counter] := l_id_details;
+	  l_loop_counter := l_loop_counter + 1;
+	EXCEPTION WHEN OTHERS THEN
+	  l_err_entry := (FORMAT('{"ERROR INPUT ID": "%s"}', l_id))::JSONB;
+	  l_details_all_ids[l_loop_counter] := l_err_entry;
+	  l_loop_counter := l_loop_counter + 1;
+	END;
+  PERFORM PG_SLEEP(1);
+  END LOOP;
+  RETURN l_details_all_ids;
+END;
+$$
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER;
+
 -- Create a view to display comments in parsed table
 CREATE OR REPLACE VIEW ensembl.vw_udf_documentation AS                                        
 SELECT
@@ -547,3 +578,14 @@ SELECT create_function_comment_statement(
   'This function call is often very slow so should be used with cautions and avoided if possible ' ||
   'because it is subject to timeout errors from the REST server.');
   
+SELECT create_function_comment_statement('ensembl.get_details_for_id_array_as_json', 
+                                         ARRAY['TEXT[]'], 
+                                         'Returns an array of JSONB objects received from the Ensembl REST API for the input array of Ensembl IDs.', 
+                                         $$SELECT * FROM ensembl.get_details_for_id_array_as_json(ARRAY['ENSG00000275026', 'ENSG00000232433', 'ENSG00000172967', 'ENSG00000237525', 'ENSG00000185640', 'ENSG00000276128', 'ENSG00000227230', 'ENSG00000243961']);$$, 
+                                         'The function initialises an array of the same length as the argument array with empty JSONB objects' ||
+                                         'Each element of the initialised array will be populated with the JSON returned by the REST API call (*ensembl.get_details_for_id_as_json*) or ' || 
+                                         ' a JSONB indicating an error with that ID. The returned array has to be the same length as the input argument array. ' ||
+					 'The inner block in the *FOREACH* loop traps exceptions thrown when the REST API returns an error. ' ||
+					 'Currently, the type of error is not reported so it could be due to a bad ID (one that does not exist or that has been deprecated) ' ||
+					 'or due to a server-side API error.' ||
+					 'The *PERFORM PG_SLEEP(1);* code line is added to ensure that the REST API does not throw an over-use error.');
