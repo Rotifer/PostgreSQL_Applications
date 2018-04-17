@@ -32,7 +32,7 @@ SELECT create_function_comment_statement('create_function_comment_statement',
                                          'It checks that the comment text can be converted to JSONB and an error will arise if the it cannot be converted to JSONB' || 
                                          ' (line: *l_comment_as_jsonb := l_comment::JSONB;)*. Double quotes have special meaning in JSON so are disallowed in the input string arguments.' ||
                                          'To allow for single quotes in the example SQL, double dollar ($$) quoting is used to enclose the example SQL statement.'
-                                         'Remember to include the schema name as art of the function name if it is not the default <public>. As PL/pgSQL allows function over-loading,' ||
+                                         'Remember to include the schema name as part of the function name if it is not the default <public>. As PL/pgSQL allows function over-loading,' ||
                                          ' you need to ensure that the array of argument types exactly matches the function you wish to comment.');
                                          
 
